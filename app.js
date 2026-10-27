@@ -2830,11 +2830,11 @@ function tabsDeEstado(conteos) {
 const contextoDeRutas = () => ({ porSku: modelo.catalogo.porSku, planta, ajustes });
 
 // Pedido manual: productos del inventario armados a mano. Viven solo en esta pantalla (no van al Sheet ni generan historial).
-function cajaManual() {
+function cuerpoManual() {
   const lineas = ui.picking.manual;
   const opciones = modelo.catalogo.skus.map(s => `<option value="${esc(s.sku)} — ${esc(s.descripcion)}"></option>`).join('');
   return (
-    `<div class="card"><h2>Pedido manual</h2>` +
+    '' +
     `<div class="row" style="flex-wrap:nowrap"><input id="manual-producto" list="manual-skus" placeholder="Buscar producto por código o nombre…" style="flex:1;min-width:0"><input id="manual-cantidad" type="number" min="1" step="1" value="${esc(String(ui.picking.manualCantidad || 1))}" style="width:84px"><button class="btn p" id="manual-agregar">+ Agregar</button></div>` +
     `<datalist id="manual-skus">${opciones}</datalist>` +
     (lineas.length
@@ -2842,8 +2842,7 @@ function cajaManual() {
           ['SKU', 'Producto', 'Cantidad', ''],
           lineas.map((l, i) => [esc(l.sku), esc((modelo.catalogo.porSku[l.sku] || {}).descripcion || ''), fmt(l.cantidad), `<button class="btn" data-manual-quitar="${i}">×</button>`])
         ) + `<div class="row"><button class="btn" id="manual-vaciar">Vaciar lista</button></div>`
-      : '<p class="mu">Aún no agregó productos. Busque un producto, indique la cantidad y pulse «Agregar».</p>') +
-    `</div>`
+      : '<p class="mu">Aún no agregó productos. Busque un producto, indique la cantidad y pulse «Agregar».</p>')
   );
 }
 
@@ -2865,10 +2864,13 @@ function render() {
   const conPlan = ui.picking.plan;
   const maximizado = ui.picking.recorridoMaximizado === true;
 
-  const elegir = manual
-    ? cajaManual()
-    : `<div class="card"><h2>1 · Elija el pedido</h2><select id="pedido" style="width:100%">${pedidos.map(p => `<option value="${esc(p.id)}" ${p.id == pedido.id ? 'selected' : ''}>${esc(p.id)} · ${esc(p.tienda)} · ${p.lineas.length} líneas</option>`).join('')}</select><p class="mu">Completados: pedidos con fecha de entrega. Pendientes: pedidos sin fecha de entrega. Se muestran los ${PEDIDOS_EN_LISTA} más recientes.</p></div>`;
-  const origen = `<div class="tabs" style="margin-top:8px"><button class="${manual ? '' : 'on'}" data-origen="real">Pedido real</button><button class="${manual ? 'on' : ''}" data-origen="manual">Pedido manual</button></div>`;
+  const origen = `<div class="tabs"><button class="${manual ? '' : 'on'}" data-origen="real">Pedido real</button><button class="${manual ? 'on' : ''}" data-origen="manual">Pedido manual</button></div>`;
+  const elegir =
+    `<div class="card"><h2>Elija el pedido</h2>${origen}` +
+    (manual
+      ? cuerpoManual()
+      : `<select id="pedido" style="width:100%">${pedidos.map(p => `<option value="${esc(p.id)}" ${p.id == pedido.id ? 'selected' : ''}>${esc(p.id)} · ${esc(p.tienda)} · ${p.lineas.length} líneas</option>`).join('')}</select>`) +
+    `</div>`;
   const plan = `<div class="card"><h2>Plan de distribución</h2><div class="tabs"><button class="${conPlan ? '' : 'on'}" data-plan="0">Ubicaciones actuales</button><button class="${conPlan ? 'on' : ''}" data-plan="1">Con plan aplicado</button></div></div>`;
   const mensajeSinRecorrido = manual
     ? 'Agregue productos al pedido manual para ver su recorrido.'
@@ -2877,7 +2879,6 @@ function render() {
   return (
     encabezado(TITULO, SUBTITULO) +
     tabsDeEstado(conteos) +
-    origen +
     `<div class="picking-top${maximizado ? ' maximizado' : ''}"><div class="picking-izq">${elegir}${plan}<div class="grid kpis-compactos">${kpi('Distancia total', fmt(ruta.distancia) + ' m', 'ida y vuelta al muelle', 'ac')}${kpi('Tiempo de armado', mmss(ruta.tiempo), ajustes.vel + ' m/s + ' + ajustes.tpl + ' s por línea', 'wa')}${kpi('Exposición al frío', mmss(ruta.exposicionFrio), `Límite ${ajustes.frioMax} min · ${dentroDelLimite ? 'dentro' : 'EXCEDIDO'}`, dentroDelLimite ? 'ok' : 'er')}${kpi('Paradas y líneas', ruta.paradas.length + ' / ' + ruta.nLineas, 'racks a visitar / líneas', 'vi')}</div></div>` +
     `<div class="recorrido-bloque">${sinRecorrido ? '' : `<div class="card controles-recorrido">${controlesDeAnimacion()}</div>`}<div class="card recorrido-caja"><div class="row" style="align-items:center"><h2 style="flex:1">Recorrido en la planta</h2><button class="btn" data-maximizar="${maximizado ? 0 : 1}">${maximizado ? 'Restaurar' : 'Maximizar'}</button></div>${sinRecorrido ? `<p class="mu">${mensajeSinRecorrido}</p>` : ''}<div class="plano-wrap">${dibujarPlano(planta, { recorrido: ruta.recorrido, paradas: ruta.paradas, animable: true })}</div></div></div></div>` +
     `<div class="card"><div class="row"><h2 style="flex:1">Hoja de picking</h2><button class="btn p" id="exportar">⬇ Exportar CSV</button><button class="btn" id="imprimir">Guardar PDF</button></div>${tabla(
