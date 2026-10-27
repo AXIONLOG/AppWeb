@@ -1872,8 +1872,9 @@ const encabezado = (titulo, subtitulo, acciones = '') =>
   `<div class="top"><div><h1>${titulo}</h1><p class="sub">${subtitulo}</p></div><div class="row">${acciones}</div></div>`;
 
 // Mensaje que se muestra cuando todavía no hay datos para la pantalla.
+const iconoVacio = '<svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true" style="fill:none;stroke:var(--mu);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round"><path d="M3 13l3-8h12l3 8v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 13h5l1 2h6l1-2h5"/></svg>';
 const estadoVacio = (titulo, texto, boton = true) =>
-  `<div class="card vacio"><h2>${titulo}</h2><p class="mu">${texto}</p>${
+  `<div class="card vacio">${iconoVacio}<p class="mu vacio-texto"><b>${titulo}</b>${texto ? ' · ' + texto : ''}</p>${
     boton ? '<button class="btn p" data-go="datos">Ir a Datos →</button>' : ''
   }</div>`;
 
@@ -2844,13 +2845,10 @@ function cuerpoManual() {
   const opciones = modelo.catalogo.skus.map(s => `<option value="${esc(s.sku)} — ${esc(s.descripcion)}"></option>`).join('');
   return (
     '' +
-    `<div class="row" style="flex-wrap:nowrap"><input id="manual-producto" list="manual-skus" placeholder="Buscar producto por código o nombre…" style="flex:1;min-width:0"><input id="manual-cantidad" type="number" min="1" step="1" value="${esc(String(ui.picking.manualCantidad || 1))}" style="width:84px"><button class="btn p" id="manual-agregar">+ Agregar</button></div>` +
+    `<div class="row" style="flex-wrap:nowrap"><input id="manual-producto" list="manual-skus" placeholder="Buscar producto por código o nombre…" style="flex:1;min-width:0"><div class="stepper"><button class="btn" data-cant="-1">−</button><input id="manual-cantidad" type="number" min="1" step="1" value="${esc(String(ui.picking.manualCantidad || 1))}"><button class="btn" data-cant="1">+</button></div><button class="btn p" id="manual-agregar">+ Agregar</button></div>` +
     `<datalist id="manual-skus">${opciones}</datalist>` +
     (lineas.length
-      ? tabla(
-          ['SKU', 'Producto', 'Cantidad', ''],
-          lineas.map((l, i) => [esc(l.sku), esc((modelo.catalogo.porSku[l.sku] || {}).descripcion || ''), fmt(l.cantidad), `<button class="btn" data-manual-quitar="${i}">×</button>`])
-        ) + `<div class="row"><button class="btn" id="manual-vaciar">Vaciar lista</button></div>`
+      ? `<ul class="lista-manual">${lineas.map((l, i) => `<li><span><b>${esc(l.sku)}</b> ${esc((modelo.catalogo.porSku[l.sku] || {}).descripcion || '')}</span><span>${fmt(l.cantidad)} <button class="btn" data-manual-quitar="${i}">×</button></span></li>`).join('')}</ul><div class="row"><button class="btn" id="manual-vaciar">Vaciar lista</button></div>`
       : '<p class="mu">Aún no agregó productos. Busque un producto, indique la cantidad y pulse «Agregar».</p>')
   );
 }
@@ -3041,6 +3039,14 @@ async function descargarHojaPdf() {
 }
 
 function enlazar({ refrescar }) {
+  // Pestañas: la vista entra con un desvanecido corto (sin repetirlo al escribir en el buscador)
+  const animarVista = () => {
+    const vista = document.querySelector('#view');
+    if (!vista) return;
+    vista.classList.remove('entrada');
+    void vista.offsetWidth;
+    vista.classList.add('entrada');
+  };
   alCambiar('#pedido', valor => {
     ui.picking.pedido = valor;
     refrescar();
@@ -3054,6 +3060,7 @@ function enlazar({ refrescar }) {
     ui.picking.pedido = '';
     ui.picking.pagina = 1;
     refrescar();
+    animarVista();
   });
   alClick('[data-devolver]', boton => {
     cambiarEstado(boton.dataset.devolver, 'pendiente');
@@ -3093,6 +3100,13 @@ function enlazar({ refrescar }) {
   alClick('[data-origen]', boton => {
     ui.picking.origen = boton.dataset.origen;
     refrescar();
+    animarVista();
+  });
+  alClick('[data-cant]', boton => {
+    const input = document.querySelector('#manual-cantidad');
+    const n = Math.max(1, Math.floor(Number(input.value) || 1) + Number(boton.dataset.cant));
+    input.value = n;
+    ui.picking.manualCantidad = n;
   });
   alClick('#manual-agregar', () => {
     const sku = (document.querySelector('#manual-producto').value || '').split(' — ')[0].trim();
