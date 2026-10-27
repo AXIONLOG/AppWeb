@@ -2864,7 +2864,12 @@ function render() {
 
   const manual = ui.picking.origen === 'manual';
   if (!manual && !pedido) {
-    return encabezado(TITULO, SUBTITULO) + tabsDeEstado(conteos) + estadoVacio('No hay pedidos pendientes', 'Revise la pestaña Pedidos de su Sheet.');
+    const origenVacio = `<div class="tabs"><button class="on" data-origen="real">Pedido real</button><button data-origen="manual">Pedido manual</button></div>`;
+    return (
+      encabezado(TITULO, SUBTITULO) +
+      tabsDeEstado(conteos) +
+      `<div class="card"><h2>Elija el pedido</h2>${origenVacio}<p class="mu">No hay pedidos pendientes. Revise la pestaña Pedidos de su Sheet o use el pedido manual.</p></div>`
+    );
   }
 
   const ruta = calcularRuta(pedido, metodo, ubicaciones, contextoDeRutas());
@@ -3085,6 +3090,33 @@ function enlazar({ refrescar }) {
       nuevo.setSelectionRange(posicion, posicion);
     };
   }
+  alClick('[data-origen]', boton => {
+    ui.picking.origen = boton.dataset.origen;
+    refrescar();
+  });
+  alClick('#manual-agregar', () => {
+    const sku = (document.querySelector('#manual-producto').value || '').split(' — ')[0].trim();
+    const cantidad = Math.floor(Number(document.querySelector('#manual-cantidad').value));
+    if (!modelo.catalogo.porSku[sku]) return alert('Elija un producto de la lista del inventario.');
+    if (!(cantidad > 0)) return alert('Indique una cantidad mayor a 0.');
+    const existente = ui.picking.manual.find(l => l.sku === sku);
+    if (existente) existente.cantidad += cantidad;
+    else ui.picking.manual.push({ sku, cantidad });
+    ui.picking.manualCantidad = cantidad;
+    refrescar();
+  });
+  alClick('#manual-vaciar', () => {
+    ui.picking.manual = [];
+    refrescar();
+  });
+  alClick('[data-manual-quitar]', boton => {
+    ui.picking.manual.splice(+boton.dataset.manualQuitar, 1);
+    refrescar();
+  });
+  alClick('[data-maximizar]', boton => {
+    ui.picking.recorridoMaximizado = boton.dataset.maximizar === '1';
+    refrescar();
+  });
   alClick('#exportar', () => {
     const { pedido, metodo, ubicaciones } = seleccion();
     const ruta = calcularRuta(pedido, metodo, ubicaciones, contextoDeRutas());
