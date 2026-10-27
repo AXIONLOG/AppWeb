@@ -89,17 +89,17 @@ input:disabled,select:disabled{background:#f3f4f6;color:var(--mu);cursor:not-all
 /* Picking: columna izquierda con los pasos y los indicadores; a la derecha el recorrido */
 .picking-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-bottom:14px;align-items:start}
 .picking-top>.card{margin:0}
-.picking-izq .card{margin-bottom:12px}
+
 @media (max-width:900px){.picking-top{grid-template-columns:1fr}}
 
 /* Picking: tarjetas de la columna izquierda lo más bajas posible */
-.picking-izq{display:flex;flex-direction:column;gap:8px}
-.picking-izq .card{padding:8px 10px;margin:0}
-.picking-izq h2{margin:0 0 4px;font-size:15px}
-.picking-izq select{padding:5px 7px}
-.picking-izq p{margin:3px 0}
-.picking-izq .tabs{margin:6px 0 0}
-.picking-izq .tabs button{padding:4px 10px;font-size:13px}
+.picking-izq{display:flex;flex-direction:column;gap:12px}
+
+
+
+
+
+
 .picking-izq .kpis-compactos{grid-template-columns:1fr 1fr;gap:8px;margin:0}
 .kpis-compactos .k{padding:6px 8px}
 .kpis-compactos .k b{font-size:16px;margin:0}
@@ -138,7 +138,7 @@ nav a.on i{box-shadow:0 0 0 2px rgba(255,255,255,.25),0 4px 12px rgba(0,0,0,.35)
 /* ===== Diseño suave: tarjetas, indicadores, botones y pestañas más limpios ===== */
 :root{--bd:#e5e9f2;--sh:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);--rd:14px}
 h1{font-size:24px;letter-spacing:-.01em;font-weight:700}
-.card{border-radius:var(--rd);box-shadow:var(--sh);border-color:#e8ecf3;padding:18px 20px}
+.card{border-radius:var(--rd);box-shadow:var(--sh);border-color:#e8ecf3;padding:16px 18px}
 .k{background:#fff;border:1px solid #bfd6fb;border-left-width:1px;border-radius:var(--rd);box-shadow:var(--sh);padding:14px 16px}
 .k span{font-size:12.5px;color:var(--mu);font-weight:500}
 .k b{font-size:28px;font-weight:700;letter-spacing:-.01em;margin:4px 0}
@@ -160,7 +160,7 @@ h1{font-size:24px;letter-spacing:-.01em;font-weight:700}
 .btn.p{background:linear-gradient(180deg,#3b82f6,#2563eb);border-color:#2563eb;color:#fff;box-shadow:0 1px 2px rgba(37,99,235,.25),inset 0 1px 0 rgba(255,255,255,.15)}
 .btn.p:hover:not(:disabled){background:linear-gradient(180deg,#4b8ff7,#2a6ef0);border-color:#2563eb}
 .tabs{display:inline-flex;gap:4px;padding:4px;background:#eef1f6;border-radius:12px;margin-bottom:14px}
-.tabs button{border:none;background:transparent;border-radius:9px;padding:8px 14px;color:var(--mu);font-weight:500;transition:background .15s,color .15s}
+.tabs button{border:none;background:transparent;border-radius:9px;padding:8px 14px;color:var(--mu);font-weight:500;transition:background .2s ease,color .2s ease,box-shadow .2s ease}
 .tabs button:hover{color:var(--tx)}
 .tabs .on{background:#fff;color:var(--ac);box-shadow:0 1px 2px rgba(16,24,40,.08),0 1px 3px rgba(16,24,40,.06)}
 select,input{border-radius:10px;border-color:#dce1ea;padding:9px 12px;transition:border-color .15s,box-shadow .15s}
@@ -182,3 +182,28 @@ th{padding:10px}
 .picking-top.maximizado{grid-template-columns:minmax(230px,1fr) minmax(0,3fr)}
 .picking-top.maximizado .recorrido-caja .plano-wrap svg.plano{height:auto;width:100%;max-height:calc(100vh - 170px)}
 @media (max-width:900px){.picking-top.maximizado{grid-template-columns:1fr}}
+
+/* Tablas: filas alternas y resaltado al pasar el cursor */
+table tr:nth-child(even) td{background:#f7f9fc}
+table tr:hover td{background:#eef4ff}
+
+/* Pedido manual: lista simple de productos */
+.lista-manual{list-style:none;margin:8px 0 0;padding:0}
+.lista-manual li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--bd)}
+.lista-manual li>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lista-manual li>span:last-child{display:flex;align-items:center;gap:10px;flex:none;font-weight:600}
+.lista-manual .btn{padding:2px 8px}
+
+/* Cantidad con − y + */
+.stepper{display:inline-flex;align-items:center;border:1px solid var(--bd);border-radius:10px;overflow:hidden;flex:none}
+.stepper .btn{border:none;border-radius:0;box-shadow:none;padding:8px 12px}
+.stepper input{border:none;width:64px;text-align:center;font-weight:600;padding:8px 4px;-moz-appearance:textfield}
+.stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+
+/* Estado vacío: icono y una sola línea */
+.vacio svg{display:block;margin:0 auto 8px}
+.vacio-texto{margin:0}
+
+/* Entrada suave de la vista al cambiar de pestaña */
+@keyframes entrada{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+#view.entrada{animation:entrada .25s ease}
