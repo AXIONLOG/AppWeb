@@ -87,7 +87,7 @@ input:disabled,select:disabled{background:#f3f4f6;color:var(--mu);cursor:not-all
 .kpis-compactos .k{padding:8px 10px}.kpis-compactos .k b{font-size:18px}
 
 /* Picking: columna izquierda con los pasos y los indicadores; a la derecha el recorrido */
-.picking-top{display:grid;grid-template-columns:minmax(280px,1fr) minmax(0,1.4fr);gap:12px;margin-bottom:14px;align-items:start}
+.picking-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-bottom:14px;align-items:start}
 .picking-top>.card{margin:0}
 .picking-izq .card{margin-bottom:12px}
 @media (max-width:900px){.picking-top{grid-template-columns:1fr}}
@@ -147,7 +147,7 @@ h1{font-size:24px;letter-spacing:-.01em;font-weight:700}
 .k.vi{border-color:#d9c7fb}.k.vi b{color:#7c3aed}
 
 /* Picking: columna de controles angosta y el plano ocupa el resto del ancho */
-.picking-top{grid-template-columns:300px minmax(0,1fr)}
+.picking-top{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 .plano-wrap{margin-top:4px}
 .plano-wrap svg.plano{height:auto}
 /* Indicadores de Picking: más grandes para leerlos bien */
@@ -170,6 +170,9 @@ select:focus,input:focus{outline:none;border-color:#93b4f5;box-shadow:0 0 0 3px 
 td{padding:10px 10px}
 th{padding:10px}
 
-/* Recorrido en la planta maximizado: ocupa toda la pantalla */
-.card.recorrido-max{position:fixed;inset:16px;z-index:1000;margin:0;overflow:auto;box-shadow:0 12px 40px rgba(15,27,61,.35)}
-.card.recorrido-max .plano-wrap{max-height:none}
+/* Recorrido en la planta maximizado: toda la vista, sin tener que bajar */
+.recorrido-bloque.recorrido-max{position:fixed;inset:12px;z-index:1000;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+.recorrido-max .controles-recorrido{flex:none;margin:0 0 10px}
+.recorrido-max .recorrido-caja{flex:1 1 0;min-height:0;display:flex;flex-direction:column;margin:0;overflow:hidden}
+.recorrido-max .recorrido-caja .plano-wrap{flex:1 1 0;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.recorrido-max .recorrido-caja .plano-wrap svg.plano{height:100%;width:auto;max-width:100%}
