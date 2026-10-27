@@ -124,7 +124,7 @@ const modelo = {
 // Lo que el usuario eligió en cada pantalla (pestaña activa, filtros, pedido elegido…).
 const ui = {
   ubicaciones: { pestana: 1, filtro: '', ocupacion: 0, filtros: { prioridad: '', cliente: '', zona: '', abc: '' } },
-  picking: { pedido: '', metodo: 'zonas', plan: 0, estado: 'pendientes', pagina: 1 },
+  picking: { pedido: '', metodo: 'zonas', plan: 0, estado: 'pendientes', pagina: 1, buscar: '', filtros: { cliente: '', tienda: '' } },
   inventario: { pestana: 1, filtros: { cuando: '', zona: '', cliente: '', abc: '' }, filtrosDif: { zona: '', cliente: '', abc: '' }, filtroDif: '', semanaConteo: 1, filtroConteo: '', filtroPlan: '' },
   escenarios: { demanda: 0, leadTime: 0, servicio: 0 }
 };
@@ -2818,7 +2818,7 @@ function seleccion() {
 function tabsDeEstado(conteos) {
   const estado = ui.picking.estado;
   return (
-    `<div class="tabs" style="margin-bottom:10px">` +
+    `<div class="tabs">` +
     `<button class="${estado === 'pendientes' ? 'on' : ''}" data-estado="pendientes">Pendientes (${fmt(conteos.pendientes)})</button>` +
     `<button class="${estado === 'completados' ? 'on' : ''}" data-estado="completados">Completados (${fmt(conteos.completados)})</button></div>`
   );
@@ -2835,7 +2835,7 @@ function render() {
     const mensaje = ui.picking.estado === 'completados' ? 'No hay pedidos completados' : 'No hay pedidos pendientes';
     return (
       encabezado(TITULO, SUBTITULO) +
-      `<div class="card">${tabsDeEstado(conteos)}</div>` +
+      tabsDeEstado(conteos) +
       estadoVacio(mensaje, 'Revise la pestaña Pedidos de su Sheet y la fecha de corte en Ajustes.')
     );
   }
@@ -2848,7 +2848,7 @@ function render() {
   const conPlan = ui.picking.plan;
 
   const elegir =
-    `<div class="card"><h2>1 · Elija el pedido</h2>${tabsDeEstado(conteos)}` +
+    `<div class="card"><h2>1 · Elija el pedido</h2>` +
     `<select id="pedido" style="width:100%">${pedidos.map(p => `<option value="${esc(p.id)}" ${p.id == pedido.id ? 'selected' : ''}>${esc(p.id)} · ${esc(p.tienda)} · ${p.lineas.length} líneas</option>`).join('')}</select>` +
     `<p class="mu">Completados: pedidos con fecha de entrega. Pendientes: pedidos sin fecha de entrega. Se muestran los ${PEDIDOS_EN_LISTA} más recientes.</p></div>`;
 
@@ -2857,6 +2857,7 @@ function render() {
 
   return (
     encabezado(TITULO, SUBTITULO) +
+    tabsDeEstado(conteos) +
     `<div class="picking-top"><div class="picking-izq">${elegir}${plan}` +
     `<div class="grid kpis-compactos">${kpi('Distancia total', fmt(ruta.distancia) + ' m', 'ida y vuelta al muelle', 'ac')}${kpi('Tiempo de armado', mmss(ruta.tiempo), ajustes.vel + ' m/s + ' + ajustes.tpl + ' s por línea', 'wa')}${kpi('Exposición al frío', mmss(ruta.exposicionFrio), `Límite ${ajustes.frioMax} min · ${dentroDelLimite ? 'dentro' : 'EXCEDIDO'}`, dentroDelLimite ? 'ok' : 'er')}${kpi('Paradas y líneas', ruta.paradas.length + ' / ' + ruta.nLineas, 'racks a visitar / líneas', 'vi')}</div>${sinRecorrido ? '' : `<div class="card">${controlesDeAnimacion()}</div>`}</div>` +
     `<div class="card"><h2>Recorrido en la planta</h2>${sinRecorrido ? '<p class="mu">Este pedido no tiene SKUs que se puedan recorrer: sus Racks no están en la pestaña Ubicaciones o no tienen camino desde el muelle. Revise los avisos de la pantalla Ubicaciones.</p>' : ''}<div class="plano-wrap">${dibujarPlano(planta, { recorrido: ruta.recorrido, paradas: ruta.paradas, animable: true })}</div></div></div>` +
@@ -2867,19 +2868,41 @@ function render() {
   );
 }
 
-// Pedidos completados: tabla paginada (40 por página) con el botón para devolver cada pedido a Pendientes
+// Pedidos completados: buscador, filtros por cliente y tienda, y tabla paginada (40 por página)
 const FILAS_POR_PAGINA = 40;
 const fechaDe = marca => (marca == null || Number.isNaN(marca) ? '—' : new Date(marca).toLocaleDateString('es-PE', { timeZone: 'UTC' }));
 
+function filtrarCompletados(lista) {
+  const { buscar, filtros } = ui.picking;
+  const texto = String(buscar || '').trim().toLowerCase();
+  return lista.filter(
+    p =>
+      (!filtros.cliente || p.cliente === filtros.cliente) &&
+      (!filtros.tienda || p.tienda === filtros.tienda) &&
+      (!texto || `${p.id} ${p.cliente} ${p.tienda}`.toLowerCase().includes(texto))
+  );
+}
+
+const selectorPick = (campo, nombre, valores, actual) =>
+  `<label>${nombre}<select data-filtro-pick="${campo}"><option value="">Todos</option>${valores
+    .map(v => `<option value="${esc(v)}" ${actual === v ? 'selected' : ''}>${esc(v)}</option>`)
+    .join('')}</select></label>`;
+
 function vistaCompletados(conteos) {
-  const lista = pedidosPorEstado().completados;
+  const todos = pedidosPorEstado().completados;
+  const lista = filtrarCompletados(todos);
   const paginas = Math.max(1, Math.ceil(lista.length / FILAS_POR_PAGINA));
   const pagina = Math.min(Math.max(1, ui.picking.pagina || 1), paginas);
   const inicio = (pagina - 1) * FILAS_POR_PAGINA;
   const filas = lista.slice(inicio, inicio + FILAS_POR_PAGINA);
+  const unicos = campo => [...new Set(todos.map(p => p[campo]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'es'));
+  const f = ui.picking.filtros;
+
   return (
     encabezado(TITULO, SUBTITULO) +
-    `<div class="card">${tabsDeEstado(conteos)}` +
+    tabsDeEstado(conteos) +
+    `<div class="barra-filtros"><input id="filtro-pick" class="buscar" placeholder="Buscar por pedido, cliente o tienda…" value="${esc(ui.picking.buscar || '')}"><div class="campos">${selectorPick('cliente', 'Cliente', unicos('cliente'), f.cliente)}${selectorPick('tienda', 'Tienda', unicos('tienda'), f.tienda)}</div></div>` +
+    `<div class="card"><p class="mu">${fmt(lista.length)} de ${fmt(todos.length)} pedidos completados</p>` +
     (filas.length
       ? tabla(
           ['Pedido', 'Fecha pedido', 'Cliente', 'Tienda', 'Fecha entrega', ''],
@@ -2893,7 +2916,7 @@ function vistaCompletados(conteos) {
           ])
         ) +
         `<div class="row" style="align-items:center;justify-content:space-between;margin-top:14px"><button class="btn" data-pagina="-1" ${pagina <= 1 ? 'disabled' : ''}>‹ Anterior</button><b>Página ${pagina} de ${paginas}</b><button class="btn" data-pagina="1" ${pagina >= paginas ? 'disabled' : ''}>Siguiente ›</button></div>`
-      : estadoVacio('No hay pedidos completados', 'Revise la pestaña Pedidos de su Sheet.')) +
+      : estadoVacio('Ningún pedido coincide', 'Cambie el buscador o quite los filtros.')) +
     `</div>`
   );
 }
@@ -3008,6 +3031,25 @@ function enlazar({ refrescar }) {
     refrescar();
   });
 
+  document.querySelectorAll('[data-filtro-pick]').forEach(selector => {
+    selector.onchange = () => {
+      ui.picking.filtros[selector.dataset.filtroPick] = selector.value;
+      ui.picking.pagina = 1;
+      refrescar();
+    };
+  });
+  const filtroPick = document.querySelector('#filtro-pick');
+  if (filtroPick) {
+    filtroPick.oninput = () => {
+      ui.picking.buscar = filtroPick.value;
+      ui.picking.pagina = 1;
+      const posicion = filtroPick.selectionStart;
+      refrescar();
+      const nuevo = document.querySelector('#filtro-pick');
+      nuevo.focus();
+      nuevo.setSelectionRange(posicion, posicion);
+    };
+  }
   alClick('#exportar', () => {
     const { pedido, metodo, ubicaciones } = seleccion();
     const ruta = calcularRuta(pedido, metodo, ubicaciones, contextoDeRutas());
