@@ -169,3 +169,7 @@ select:focus,input:focus{outline:none;border-color:#93b4f5;box-shadow:0 0 0 3px 
 .barra-filtros select{padding:9px 12px}
 td{padding:10px 10px}
 th{padding:10px}
+
+/* Recorrido en la planta maximizado: ocupa toda la pantalla */
+.card.recorrido-max{position:fixed;inset:16px;z-index:1000;margin:0;overflow:auto;box-shadow:0 12px 40px rgba(15,27,61,.35)}
+.card.recorrido-max .plano-wrap{max-height:none}
