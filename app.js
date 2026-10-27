@@ -2768,21 +2768,29 @@ const SUBTITULO =
 const PEDIDOS_EN_LISTA = 400;
 
 // --- Estado de los pedidos: con Fecha entrega = Completado; sin Fecha entrega = Pendiente.
-// Un Completado se puede devolver a Pendientes; esa marca se guarda en este navegador.
-const CLAVE_REABIERTOS = 'axionlog.pedidosDevueltos';
+// Los cambios manuales (Marcar como completado / Devolver a Pendientes) se guardan en este navegador.
+const CLAVE_ESTADOS = 'axionlog.estadoPedidos';
+const CLAVE_DEVUELTOS_ANTES = 'axionlog.pedidosDevueltos'; // versión anterior, solo para no perder esos cambios
 
-function pedidosDevueltos() {
+function leerEstados() {
   try {
-    const lista = JSON.parse(localStorage.getItem(CLAVE_REABIERTOS) || '[]');
-    return new Set(Array.isArray(lista) ? lista.map(String) : []);
+    const guardado = JSON.parse(localStorage.getItem(CLAVE_ESTADOS) || '{}');
+    const estados = guardado && typeof guardado === 'object' && !Array.isArray(guardado) ? guardado : {};
+    const antes = JSON.parse(localStorage.getItem(CLAVE_DEVUELTOS_ANTES) || '[]');
+    if (Array.isArray(antes)) antes.forEach(id => {
+      if (!(String(id) in estados)) estados[String(id)] = 'pendiente';
+    });
+    return estados;
   } catch (error) {
-    return new Set(); // sin acceso a localStorage: se muestran solo los estados de las fechas
+    return {}; // sin acceso a localStorage: se usan solo las fechas de entrega
   }
 }
 
-function guardarPedidosDevueltos(conjunto) {
+function cambiarEstado(id, estado) {
+  const estados = leerEstados();
+  estados[String(id)] = estado;
   try {
-    localStorage.setItem(CLAVE_REABIERTOS, JSON.stringify([...conjunto]));
+    localStorage.setItem(CLAVE_ESTADOS, JSON.stringify(estados));
   } catch (error) {
     alert('No se pudo guardar el cambio en este navegador.');
   }
@@ -2790,12 +2798,13 @@ function guardarPedidosDevueltos(conjunto) {
 
 // Pedidos separados en Pendientes y Completados (y cuántos hay de cada uno)
 function pedidosPorEstado() {
-  const devueltos = pedidosDevueltos();
+  const estados = leerEstados();
   const pendientes = [];
   const completados = [];
   modelo.catalogo.pedidos.forEach(p => {
-    const tieneEntrega = !Number.isNaN(p.marcaEntrega) && !devueltos.has(String(p.id));
-    (tieneEntrega ? completados : pendientes).push(p);
+    const manual = estados[String(p.id)];
+    const completado = manual ? manual === 'completado' : !Number.isNaN(p.marcaEntrega);
+    (completado ? completados : pendientes).push(p);
   });
   return { pendientes, completados };
 }
@@ -2870,6 +2879,7 @@ function render() {
     (manual
       ? cuerpoManual()
       : `<select id="pedido" style="width:100%">${pedidos.map(p => `<option value="${esc(p.id)}" ${p.id == pedido.id ? 'selected' : ''}>${esc(p.id)} · ${esc(p.tienda)} · ${p.lineas.length} líneas</option>`).join('')}</select>`) +
+    (manual ? '' : `<button class="btn p" id="completar" style="margin-top:10px">Marcar como completado</button>`) +
     `</div>`;
   const plan = `<div class="card"><h2>Plan de distribución</h2><div class="tabs"><button class="${conPlan ? '' : 'on'}" data-plan="0">Ubicaciones actuales</button><button class="${conPlan ? 'on' : ''}" data-plan="1">Con plan aplicado</button></div></div>`;
   const mensajeSinRecorrido = manual
@@ -3041,36 +3051,14 @@ function enlazar({ refrescar }) {
     refrescar();
   });
   alClick('[data-devolver]', boton => {
-    const devueltos = pedidosDevueltos();
-    devueltos.add(boton.dataset.devolver);
-    guardarPedidosDevueltos(devueltos);
+    cambiarEstado(boton.dataset.devolver, 'pendiente');
     refrescar();
   });
-  alClick('[data-origen]', boton => {
-    ui.picking.origen = boton.dataset.origen;
-    refrescar();
-  });
-  alClick('#manual-agregar', () => {
-    const sku = (document.querySelector('#manual-producto').value || '').split(' — ')[0].trim();
-    const cantidad = Math.floor(Number(document.querySelector('#manual-cantidad').value));
-    if (!modelo.catalogo.porSku[sku]) return alert('Elija un producto de la lista del inventario.');
-    if (!(cantidad > 0)) return alert('Indique una cantidad mayor a 0.');
-    const existente = ui.picking.manual.find(l => l.sku === sku);
-    if (existente) existente.cantidad += cantidad;
-    else ui.picking.manual.push({ sku, cantidad });
-    ui.picking.manualCantidad = cantidad;
-    refrescar();
-  });
-  alClick('#manual-vaciar', () => {
-    ui.picking.manual = [];
-    refrescar();
-  });
-  alClick('[data-manual-quitar]', boton => {
-    ui.picking.manual.splice(+boton.dataset.manualQuitar, 1);
-    refrescar();
-  });
-  alClick('[data-maximizar]', boton => {
-    ui.picking.recorridoMaximizado = boton.dataset.maximizar === '1';
+  alClick('#completar', () => {
+    const { pedido } = seleccion();
+    if (!pedido) return;
+    cambiarEstado(pedido.id, 'completado');
+    ui.picking.pedido = '';
     refrescar();
   });
   alClick('[data-pagina]', boton => {
