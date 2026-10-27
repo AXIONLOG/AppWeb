@@ -170,9 +170,16 @@ select:focus,input:focus{outline:none;border-color:#93b4f5;box-shadow:0 0 0 3px 
 td{padding:10px 10px}
 th{padding:10px}
 
+/* Controles del recorrido en una sola línea: botones, barra y estado */
+.controles-recorrido{padding:10px 14px}
+.controles-recorrido .anim{margin:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.controles-recorrido .anim .row{margin:0;flex:none;flex-wrap:nowrap}
+.controles-recorrido #anim-barra{flex:1 1 180px;min-width:120px;width:auto!important;margin:0}
+.controles-recorrido #anim-estado{margin:0;flex:none;white-space:nowrap;font-size:13px}
+
 /* Recorrido en la planta maximizado: toda la vista, sin tener que bajar */
 .recorrido-bloque.recorrido-max{position:fixed;inset:12px;z-index:1000;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
 .recorrido-max .controles-recorrido{flex:none;margin:0 0 10px}
 .recorrido-max .recorrido-caja{flex:1 1 0;min-height:0;display:flex;flex-direction:column;margin:0;overflow:hidden}
-.recorrido-max .recorrido-caja .plano-wrap{flex:1 1 0;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.recorrido-max .recorrido-caja .plano-wrap svg.plano{height:100%;width:auto;max-width:100%}
+.recorrido-max .recorrido-caja .plano-wrap{flex:1 1 0;min-height:0;position:relative;margin:0;overflow:hidden}
+.recorrido-max .recorrido-caja .plano-wrap svg.plano{position:absolute;inset:0;width:100%!important;height:100%!important}
