@@ -2842,12 +2842,10 @@ const contextoDeRutas = () => ({ porSku: modelo.catalogo.porSku, planta, ajustes
 // Pedido manual: productos del inventario armados a mano. Viven solo en esta pantalla (no van al Sheet ni generan historial).
 function cuerpoManual() {
   const lineas = ui.picking.manual;
-  const opciones = modelo.catalogo.skus.map(s => `<option value="${esc(s.sku)} — ${esc(s.descripcion)}"></option>`).join('');
   return (
     '' +
-    `<div class="row" style="flex-wrap:nowrap"><input id="manual-producto" list="manual-skus" placeholder="Buscar producto por código o nombre…" style="flex:1;min-width:0"><div class="stepper"><button class="btn" data-cant="-1">−</button><input id="manual-cantidad" type="number" min="1" step="1" value="${esc(String(ui.picking.manualCantidad || 1))}"><button class="btn" data-cant="1">+</button></div><button class="btn p" id="manual-agregar">+ Agregar</button></div>` +
-    `<datalist id="manual-skus">${opciones}</datalist>` +
-    (lineas.length
+    `<div class="row" style="flex-wrap:nowrap"><div class="combo"><input id="manual-producto" autocomplete="off" placeholder="Buscar producto por código o nombre…"><ul class="combo-lista" id="manual-lista" hidden></ul></div><div class="stepper"><button class="btn" data-cant="-1">−</button><input id="manual-cantidad" type="number" min="1" step="1" value="${esc(String(ui.picking.manualCantidad || 1))}"><button class="btn" data-cant="1">+</button></div><button class="btn p" id="manual-agregar">+ Agregar</button></div>` +
+        (lineas.length
       ? `<ul class="lista-manual">${lineas.map((l, i) => `<li><span><b>${esc(l.sku)}</b> ${esc((modelo.catalogo.porSku[l.sku] || {}).descripcion || '')}</span><span>${fmt(l.cantidad)} <button class="btn" data-manual-quitar="${i}">×</button></span></li>`).join('')}</ul><div class="row"><button class="btn" id="manual-vaciar">Vaciar lista</button></div>`
       : '<p class="mu">Aún no agregó productos. Busque un producto, indique la cantidad y pulse «Agregar».</p>')
   );
@@ -3102,6 +3100,60 @@ function enlazar({ refrescar }) {
     refrescar();
     animarVista();
   });
+  // Buscador de productos del pedido manual: lista propia con el estilo de la app
+  const campoManual = document.querySelector('#manual-producto');
+  const listaManual = document.querySelector('#manual-lista');
+  if (campoManual && listaManual) {
+    let indice = -1;
+    const coincidencias = texto => {
+      const t = String(texto || '').trim().toLowerCase();
+      const lista = t
+        ? modelo.catalogo.skus.filter(s => s.sku.toLowerCase().includes(t) || String(s.descripcion || '').toLowerCase().includes(t))
+        : modelo.catalogo.skus;
+      return lista.slice(0, 8);
+    };
+    const opcionesVisibles = () => [...listaManual.querySelectorAll('li[data-sku]')];
+    const pintar = () => {
+      const lista = coincidencias(campoManual.value);
+      indice = -1;
+      listaManual.innerHTML = lista.length
+        ? lista.map(s => `<li data-sku="${esc(s.sku)}"><b>${esc(s.sku)}</b> ${esc(s.descripcion || '')}</li>`).join('')
+        : '<li class="sin">Sin coincidencias</li>';
+      listaManual.hidden = false;
+    };
+    const elegir = sku => {
+      const s = modelo.catalogo.porSku[sku];
+      campoManual.value = s ? `${s.sku} — ${s.descripcion || ''}` : sku;
+      listaManual.hidden = true;
+    };
+    const marcar = nuevo => {
+      opcionesVisibles().forEach((li, k) => li.classList.toggle('activo', k === nuevo));
+      indice = nuevo;
+    };
+    campoManual.addEventListener('focus', pintar);
+    campoManual.addEventListener('input', pintar);
+    campoManual.addEventListener('blur', () => setTimeout(() => (listaManual.hidden = true), 120));
+    campoManual.addEventListener('keydown', e => {
+      if (listaManual.hidden) return;
+      const items = opcionesVisibles();
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length) {
+        e.preventDefault();
+        marcar((indice + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length);
+        items[indice].scrollIntoView?.({ block: 'nearest' });
+      } else if (e.key === 'Enter' && indice >= 0 && items[indice]) {
+        e.preventDefault();
+        elegir(items[indice].dataset.sku);
+      } else if (e.key === 'Escape') {
+        listaManual.hidden = true;
+      }
+    });
+    listaManual.addEventListener('mousedown', e => {
+      const li = e.target.closest('li[data-sku]');
+      if (!li) return;
+      e.preventDefault(); // mantiene el foco en el campo
+      elegir(li.dataset.sku);
+    });
+  }
   alClick('[data-cant]', boton => {
     const input = document.querySelector('#manual-cantidad');
     const n = Math.max(1, Math.floor(Number(input.value) || 1) + Number(boton.dataset.cant));
