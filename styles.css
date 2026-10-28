@@ -201,9 +201,20 @@ table tr:hover td{background:#eef4ff}
 .stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 
 /* Estado vacío: icono y una sola línea */
-.vacio svg{display:block;margin:0 auto 8px}
+.vacio svg{display:block;width:36px;height:36px;margin:0 auto 8px}
 .vacio-texto{margin:0}
 
 /* Entrada suave de la vista al cambiar de pestaña */
 @keyframes entrada{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 #view.entrada{animation:entrada .25s ease}
+
+/* Buscador de productos del pedido manual */
+.combo{position:relative;flex:1;min-width:0}
+.combo input{width:100%}
+.combo-lista{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;list-style:none;margin:0;padding:4px;background:var(--card);border:1px solid var(--bd);border-radius:10px;box-shadow:var(--sh);max-height:260px;overflow:auto}
+.combo-lista[hidden]{display:none}
+.combo-lista li{padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.combo-lista li b{color:var(--ac)}
+.combo-lista li:hover,.combo-lista li.activo{background:#eef4ff}
+.combo-lista li.sin{color:var(--mu);cursor:default}
+.combo-lista li.sin:hover{background:none}
