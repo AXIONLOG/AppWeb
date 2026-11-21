@@ -30,8 +30,9 @@ const AJUSTES_POR_DEFECTO = {
   rEri: 50, // reducción de diferencias en conteos con el módulo 3 (%)
   rRop: 50, // reducción de falta de productos con el módulo 3 (%)
   fotoStock: 0, // día de la foto del Stock_Sistema, formato AAAAMMDD (0 = no restar pedidos)
-  corteStock: 0, // restar pedidos hasta este día, AAAAMMDD (0 = todos los cargados)
-  frecuenciaConteo: 7 // días entre un conteo físico de stock y el siguiente
+  corteStock: 0, // corte de datos, AAAAMMDD (0 = último día del mes anterior)
+  frecuenciaConteo: 7, // días entre un conteo físico de stock y el siguiente
+  reubicacion: 30 // días entre reubicaciones: 30 = mensual, 15 = quincenal
 };
 
 // Grupos que se muestran en la pantalla Ajustes: [título, [[clave, etiqueta, tipo?], ...]]
@@ -64,9 +65,13 @@ const GRUPOS_AJUSTES = [
       ['cv', 'Variabilidad de demanda (CV)'],
       ['eri', 'Meta de exactitud ERI (%)'],
       ['fotoStock', 'Día de la foto del stock (AAAAMMDD)'],
-      ['corteStock', 'Restar pedidos hasta el día (AAAAMMDD, 0 = hoy)'],
+      ['corteStock', 'Corte de datos (AAAAMMDD, 0 = último día del mes anterior)'],
       ['frecuenciaConteo', 'Frecuencia del conteo físico (días)']
     ]
+  ],
+  [
+    'Reubicaciones',
+    [['reubicacion', 'Frecuencia de reubicaciones', 'seleccion']]
   ],
   [
     'Reducción de incidencias por módulo (supuesto, %)',
@@ -647,26 +652,33 @@ const __e = {};
 const { num, sum, aMarcaDeTiempo, normalizarZona } = __m["nucleo/formato.js"];
 const { planta } = __m["nucleo/planta.js"];
 
+// Corte de datos: último día del mes anterior, o el corte fijado en Ajustes.
+// Date.UTC(año, mes, 0) respeta febrero (28 o 29) y los meses de 30 y 31 días.
+function corteVigente(ajustes) {
+  if (ajustes.corteStock) {
+    const s = String(ajustes.corteStock);
+    return Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+  }
+  const hoy = new Date();
+  return Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), 0);
+}
+
 function construirCatalogo(datos, ajustes) {
   const { inventario, pedidos } = datos;
   const leadTimePorZona = { SECO: ajustes.ltS, REFRIGERADO: ajustes.ltF, CONGELADO: ajustes.ltC };
 
   // --- Demanda y frecuencia dentro de la ventana de cálculo (los últimos N días de pedidos)
   const marcas = pedidos.map(p => aMarcaDeTiempo(p.fecha));
-  let ultimaFecha = -Infinity;
-  marcas.forEach(m => {
-    if (m > ultimaFecha) ultimaFecha = m;
-  });
-  if (ultimaFecha === -Infinity) ultimaFecha = Date.now();
-  const desde = ultimaFecha - ajustes.vent * 864e5;
+  // Pedidos posteriores al corte son programados: no cuentan como demanda ni como completados
+  const corteMs = corteVigente(ajustes);
+  const desde = corteMs - ajustes.vent * 864e5;
 
   // Pedidos posteriores a la foto del stock (día AAAAMMDD) y hasta el corte, ambos incluidos.
   // Foto 0 = el stock ya está actualizado y no se resta nada.
   const cargados = {};
   // Un pedido resta stock el día de su despacho (su Fecha). Sin corte, el corte es hoy:
   // los pedidos con fecha futura no restan hasta que llegue ese día.
-  const hoyAAAAMMDD = Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
-  const corte = ajustes.corteStock || hoyAAAAMMDD;
+  const corte = Number(new Date(corteMs).toISOString().slice(0, 10).replace(/-/g, ''));
   pedidos.forEach(p => {
     const dia = Number(String(p.fecha || '').slice(0, 10).replace(/-/g, '')) || 0;
     const enFoto = ajustes.fotoStock && dia >= ajustes.fotoStock;
@@ -677,7 +689,7 @@ function construirCatalogo(datos, ajustes) {
   const demanda = {}; // unidades pedidas por SKU
   const frecuencia = {}; // líneas de pedido por SKU
   pedidos.forEach((p, i) => {
-    if (marcas[i] >= desde) {
+    if (marcas[i] >= desde && marcas[i] <= corteMs) {
       demanda[p.sku] = (demanda[p.sku] || 0) + num(p.cantidad);
       frecuencia[p.sku] = (frecuencia[p.sku] || 0) + 1;
     }
@@ -693,6 +705,7 @@ function construirCatalogo(datos, ajustes) {
         tienda: p.tienda,
         fecha: p.fecha,
         marca: marcas[i],
+        programado: marcas[i] > corteMs,
         // Fecha entrega (NaN si la pestaña no la trae o la celda está vacía)
         marcaEntrega: aMarcaDeTiempo(p.fechaentrega),
         lineas: []
@@ -745,7 +758,8 @@ function construirCatalogo(datos, ajustes) {
     porSku: Object.fromEntries(skus.map(s => [s.sku, s])),
     pedidos: listaPedidos,
     nPedidos: listaPedidos.length,
-    nLineas: pedidos.length
+    nLineas: pedidos.length,
+    corte: corteMs
   };
 }
 
@@ -1122,7 +1136,8 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
   const zonasSinRacks = ZONAS.filter(z => !racksDeZona(z).length);
   return {
     traslados,
-    ahorro, // metros de recorrido por semana si se aplican todos los traslados
+    ahorro: (ahorro * ajustes.reubicacion) / 7, // metros de recorrido por periodo de reubicación (mensual o quincenal)
+    periodoDias: ajustes.reubicacion,
     riesgoTermico: traslados.filter(t => t.riesgoTermico).length,
     sinUbicacion: sinRack.length + rackVacio.length,
     actual, // { sku: rack } hoy
@@ -2518,7 +2533,7 @@ function render() {
   return (
     encabezado(TITULO, SUBTITULO, `<button class="btn" id="exportar">⬇ Exportar plan</button>`) +
     avisosDelPlan(ubicaciones.avisos) +
-    `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', fmt(ubicaciones.ahorro) + ' m/sem', 'metros de recorrido si se aplican todos')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>
+    `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes'), 'metros de recorrido por periodo si se aplican todos')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>
 <div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de traslados</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Plano de la planta</button></div>` +
     (pestana == 1 ? planDeTraslados(ubicaciones.traslados, total, filtro, ui.ubicaciones.filtros) : planoDeRacks(ubicaciones, ocupacion))
   );
@@ -2802,12 +2817,19 @@ function pedidosPorEstado() {
   const estados = leerEstados();
   const pendientes = [];
   const completados = [];
+  const programados = [];
+  const { corte } = modelo.catalogo;
   modelo.catalogo.pedidos.forEach(p => {
+    if (p.programado) {
+      programados.push(p);
+      return;
+    }
     const manual = estados[String(p.id)];
-    const completado = manual ? manual === 'completado' : !Number.isNaN(p.marcaEntrega);
+    // Completado si la entrega ocurrió hasta el corte, o si se marcó a mano
+    const completado = manual ? manual === 'completado' : !Number.isNaN(p.marcaEntrega) && p.marcaEntrega <= corte;
     (completado ? completados : pendientes).push(p);
   });
-  return { pendientes, completados };
+  return { pendientes, completados, programados };
 }
 
 // Pedido manual: solo las líneas (SKU y cantidad); el resto del pedido no aplica
@@ -2816,12 +2838,12 @@ const pedidoManual = () => ({ id: 'Manual', cliente: '', tienda: '', fecha: '', 
 // Pedido elegido, método y ubicaciones con los que se calcula la ruta
 function seleccion() {
   const { ubicaciones } = modelo;
-  const { pendientes, completados } = pedidosPorEstado();
+  const { pendientes, completados, programados } = pedidosPorEstado();
   const pedidos = (ui.picking.estado === 'completados' ? completados : pendientes).slice(0, PEDIDOS_EN_LISTA);
   const elegido = ui.picking.pedido || (pedidos[0] && pedidos[0].id);
   return {
     pedidos,
-    conteos: { pendientes: pendientes.length, completados: completados.length },
+    conteos: { pendientes: pendientes.length, completados: completados.length, programados: programados.length },
     pedido: ui.picking.origen === 'manual' ? pedidoManual() : pedidos.find(p => p.id == elegido) || pedidos[0],
     metodo: 'zonas',
     ubicaciones: ui.picking.plan ? ubicaciones.propuesta : ubicaciones.actual
@@ -2833,7 +2855,7 @@ function tabsDeEstado(conteos) {
   return (
     `<div class="tabs">` +
     `<button class="${estado === 'pendientes' ? 'on' : ''}" data-estado="pendientes">Pendientes (${fmt(conteos.pendientes)})</button>` +
-    `<button class="${estado === 'completados' ? 'on' : ''}" data-estado="completados">Completados (${fmt(conteos.completados)})</button></div>`
+    `<button class="${estado === 'completados' ? 'on' : ''}" data-estado="completados">Completados (${fmt(conteos.completados)})</button></div>${conteos.programados ? `<p class="mu">${fmt(conteos.programados)} pedidos programados (después del corte) no se cuentan aquí.</p>` : ''}`
   );
 }
 
@@ -3650,8 +3672,11 @@ const SUBTITULO = 'Parámetros y supuestos del modelo. Cambiar un valor recalcul
 function campo([clave, etiqueta, tipo]) {
   const control =
     tipo === 'seleccion'
-      ? `<select data-ajuste="${clave}">${Object.keys(NIVELES_SERVICIO)
-          .map(z => `<option ${ajustes[clave] == z ? 'selected' : ''}>${z}</option>`)
+      ? `<select data-ajuste="${clave}">${(clave === 'reubicacion'
+          ? [[30, 'Mensual'], [15, 'Quincenal']]
+          : Object.keys(NIVELES_SERVICIO).map(z => [z, z])
+        )
+          .map(([valor, texto]) => `<option value="${valor}" ${ajustes[clave] == valor ? 'selected' : ''}>${texto}</option>`)
           .join('')}</select>`
       : `<input type="number" step="any" data-ajuste="${clave}" value="${ajustes[clave]}">`;
   return `<div class="fld"><span>${etiqueta}</span>${control}</div>`;
@@ -4896,11 +4921,11 @@ const puedeEditar = () => !!(usuarioActual() && usuarioActual().puedeEditar);
 
 function dibujarLogin(mensaje = '') {
   document.body.classList.add('sin-sesion');
-  $('#view').innerHTML = `<div class="login-wrap"><form class="card login" id="login-form" autocomplete="off">
-<div class="login-marca">✱ AXIONLOG</div><p class="mu">Planta 0801 · Gestión OTIF</p><h2 style="margin-top:12px">Iniciar sesión</h2>
+  $('#view').innerHTML = `<div class="login-wrap"><div class="login-marca-grande"><div class="login-icono">✱</div><div class="login-nombre">AXIONLOG</div><p>Planta 0801 · Gestión OTIF</p></div><form class="card login" id="login-form" autocomplete="off">
+<h2 class="login-titulo">Iniciar sesión</h2>
 <label class="campo-enlace"><span>Usuario</span><input id="login-usuario" autocomplete="username" required></label>
 <label class="campo-enlace"><span>Contraseña</span><input id="login-clave" type="password" autocomplete="current-password" required></label>
-<p class="er-text">${mensaje}</p>
+${mensaje ? `<div class="login-error">${mensaje}</div>` : ''}
 <button class="btn p" type="submit">Entrar</button></form></div>`;
   $('#login-form').onsubmit = e => {
     e.preventDefault();
