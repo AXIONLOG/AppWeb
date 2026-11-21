@@ -130,7 +130,7 @@ const modelo = {
 
 // Lo que el usuario eligió en cada pantalla (pestaña activa, filtros, pedido elegido…).
 const ui = {
-  ubicaciones: { pestana: 1, filtro: '', ocupacion: 0, filtros: { prioridad: '', cliente: '', zona: '', abc: '' } },
+  ubicaciones: { pestana: 1, filtro: '', ocupacion: 0, zonaPlano: '', rackPlano: '', filtros: { prioridad: '', cliente: '', zona: '', abc: '' } },
   picking: { pedido: '', metodo: 'zonas', plan: 0, estado: 'pendientes', pagina: 1, buscar: '', filtros: { cliente: '', tienda: '' }, recorridoMaximizado: false, origen: 'real', manual: [], manualCantidad: 1 },
   inventario: { pestana: 1, filtros: { cuando: '', zona: '', cliente: '', abc: '' }, filtrosDif: { zona: '', cliente: '', abc: '' }, filtroDif: '', semanaConteo: 1, filtroConteo: '', filtroPlan: '' },
   escenarios: { demanda: 0, leadTime: 0, servicio: 0 }
@@ -697,8 +697,7 @@ function construirCatalogo(datos, ajustes) {
     }
   });
 
-  // --- Pedidos: se agrupan las líneas de cada pedido y se ordenan del más reciente al más antiguo
-  const agrupados = new Map();
+  // --- Pedidos: se agrupan las líneas de cada pedido y se ordenan del más reciente al más antiguo  const agrupados = new Map();
   pedidos.forEach((p, i) => {
     if (!agrupados.has(p.pedidoid)) {
       agrupados.set(p.pedidoid, {
@@ -797,7 +796,8 @@ function calcularInventario(catalogo, ajustes) {
         stockSeguridad,
         puntoReorden,
         cobertura: demanda ? Math.max(0, s.stockActual) / demanda : 999, // días de stock
-        cantidadPedir: necesario ? Math.ceil(necesario / s.lote) * s.lote : 0,        inversion: (necesario ? Math.ceil(necesario / s.lote) * s.lote : 0) * s.costo,
+        cantidadPedir: necesario ? Math.ceil(necesario / s.lote) * s.lote : 0,
+        inversion: (necesario ? Math.ceil(necesario / s.lote) * s.lote : 0) * s.costo,
         estado:
           s.stockActual <= puntoReorden
             ? 'PEDIR'
@@ -1396,8 +1396,7 @@ function simularReposicion({ inventario, otif }, ajustes, escenario, proyeccion)
 
   // Si hay más SKUs en riesgo, aumentan las incidencias por «falta de productos»
   const incidenciasFaltaDeProductos =
-    proyeccion.incidencias * participacionDeCausa(otif.causas, 'faltadeprod');
-  const otifEstimado =
+    proyeccion.incidencias * participacionDeCausa(otif.causas, 'faltadeprod');  const otifEstimado =
     proyeccion.otifProyectado +
     -otif.regresion.pendiente *
       (incidenciasFaltaDeProductos * (1 - ajustes.rRop / 100)) *
@@ -1596,7 +1595,8 @@ function descargarCsv(nombre, filas) {
   const texto =
     '﻿' +
     filas.map(f => f.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
-  return guardarArchivo(nombre + '.csv', new Blob([texto], { type: 'text/csv' }), 'Archivo CSV', '.csv');}
+  return guardarArchivo(nombre + '.csv', new Blob([texto], { type: 'text/csv' }), 'Archivo CSV', '.csv');
+}
 
 Object.defineProperty(__e, 'parseCsv', { get: () => parseCsv, enumerable: true });
 Object.defineProperty(__e, 'leerTabla', { get: () => leerTabla, enumerable: true });
@@ -2027,12 +2027,12 @@ function etiquetasDeLineas(ubicaciones, tamano) {
 //   recorrido: lista de ubicaciones    → dibuja la ruta de picking (empieza y termina en 'DOCK')
 //   paradas:   lista de ubicaciones    → numera las paradas de la ruta
 //   animable:  true                    → deja listos los elementos que mueve la animación del recorrido
-function dibujarPlano(planta, { ocupacion, recorrido, paradas, animable } = {}) {
+function dibujarPlano(planta, { ocupacion, recorrido, paradas, animable, zona = '', seleccionado = '', clase = '' } = {}) {
   if (!planta.hay) return '';
   const { layout, ubicaciones, muelle, celda } = planta;
   const tamano = celda * 1.4; // unidad para dibujar textos y marcas
 
-  let svg = `<svg class="plano" viewBox="0 0 ${layout.ancho} ${layout.alto}" style="background:#fff;border:1px solid #e2e6ee;border-radius:10px">`;
+  let svg = `<svg class="plano ${clase}" viewBox="0 0 ${layout.ancho} ${layout.alto}" style="background:#fff;border:1px solid #e2e6ee;border-radius:10px">`;
 
   layout.muros.forEach(m => {
     svg += `<rect x="${m.x0}" y="${m.y0}" width="${m.x1 - m.x0}" height="${m.y1 - m.y0}" fill="#0b3a72"/>`;
@@ -2050,8 +2050,9 @@ function dibujarPlano(planta, { ocupacion, recorrido, paradas, animable } = {}) 
         opacidad = 0.3;
       }
     }
+    if (zona && u.zona !== zona) opacidad = 0.12; // atenuar lo que no es de la zona elegida
     const detalle = `${u.id} · ${NOMBRE_DE_TIPO[u.tipo] || u.tipo} · ${u.zona}${llenado != null ? ' · ' + Math.round(llenado * 100) + ' % lleno' : ''}`;
-    svg += `<rect data-ubicacion="${esc(u.id)}" x="${u.x - u.ancho / 2}" y="${u.y - u.alto / 2}" width="${u.ancho}" height="${u.alto}" rx="2" fill="${relleno}" opacity="${opacidad}" stroke="${saturado ? '#dc2626' : '#1e3a8a'}" stroke-width="${saturado ? 3 : 1}"><title>${esc(detalle)}</title></rect>`;
+    svg += `<rect data-ubicacion="${esc(u.id)}" x="${u.x - u.ancho / 2}" y="${u.y - u.alto / 2}" width="${u.ancho}" height="${u.alto}" rx="2" fill="${relleno}" opacity="${opacidad}" stroke="${seleccionado === u.id ? '#f97316' : saturado ? '#dc2626' : '#1e3a8a'}" stroke-width="${seleccionado === u.id || saturado ? 3 : 1}"><title>${esc(detalle)}</title></rect>`;
   });
 
   svg += etiquetasDeLineas(ubicaciones, tamano);
@@ -2094,8 +2095,7 @@ return __e;
 })();
 
 // ===== nucleo/requisitos.js =====
-__m["nucleo/requisitos.js"] = (function () {
-const __e = {};
+__m["nucleo/requisitos.js"] = (function () {const __e = {};
 // Cada pantalla necesita ciertas tablas del Sheet. Si faltan, se muestra un aviso en vez de la pantalla.
 
 const { modelo, conexion } = __m["nucleo/estado.js"];
@@ -2395,7 +2395,8 @@ function estadoDeLectura(editable) {
           p =>
             `<li>${p.ok ? '✔' : p.opcional ? '–' : '✘'} <b>${esc(p.nombre)}</b>${p.opcional ? ' (opcional)' : ''} · ${
               p.ok ? fmt(p.filas) + ' filas' : esc(p.error)
-            }</li>`        )
+            }</li>`
+        )
         .join('')}</ul>`
     : '';
   const pedirSupervisor =
@@ -2536,9 +2537,52 @@ function planDeTraslados(traslados, total, filtro, filtros) {
 }
 
 function planoDeRacks(ubicaciones, conPlanAplicado) {
-  return `<div class="card"><div class="row"><h2 style="flex:1">Ocupación de las ubicaciones de picking</h2><button class="btn ${conPlanAplicado ? '' : 'p'}" data-ocupacion="0">Situación actual</button><button class="btn ${conPlanAplicado ? 'p' : ''}" data-ocupacion="1">Con el plan aplicado</button></div>${dibujarPlano(planta, {
-    ocupacion: conPlanAplicado ? ubicaciones.ocupacionPropuesta : ubicaciones.ocupacionActual
-  })}</div>`;
+  const { zonaPlano, rackPlano } = ui.ubicaciones;
+  const ocupacion = conPlanAplicado ? ubicaciones.ocupacionPropuesta : ubicaciones.ocupacionActual;
+  const asignacion = conPlanAplicado ? ubicaciones.propuesta : ubicaciones.actual;
+
+  // Estadísticas de los racks de picking de la zona elegida
+  const racks = planta.ubicaciones.filter(u => u.tipo === 'picking' && ocupacion[u.id] != null && (!zonaPlano || u.zona === zonaPlano));
+  const total = racks.length;
+  const conStock = racks.filter(u => ocupacion[u.id] > 0).length;
+  const llenos = racks.filter(u => ocupacion[u.id] > 1).length;
+  const promedio = total ? racks.reduce((suma, u) => suma + ocupacion[u.id], 0) / total : 0;
+
+  // Rack seleccionado: qué SKUs guarda con el plan elegido
+  const sel = racks.find(u => u.id === rackPlano);
+  let detalle = '<p class="plano-ayuda">Haga clic en un rack para ver qué SKUs guarda.</p>';
+  if (sel) {
+    const skus = Object.keys(asignacion).filter(sku => asignacion[sku] === sel.id);
+    const mostrar = skus.slice(0, 18).map(sku => `<span>${esc(sku)}</span>`).join('');
+    detalle = `<div class="plano-detalle"><b>Rack ${esc(sel.id)}</b> · ${esc(sel.zona)} · ${fmt(ocupacion[sel.id] * 100, 0)} % lleno · ${fmt(skus.length)} SKUs
+      ${skus.length ? `<div class="sku-lista">${mostrar}${skus.length > 18 ? `<span>y ${fmt(skus.length - 18)} más</span>` : ''}</div>` : '<p class="plano-ayuda">Sin SKUs asignados con este plan.</p>'}</div>`;
+  }
+
+  const zonas = ['', 'SECO', 'REFRIGERADO', 'CONGELADO'];
+  const COLOR_ZONA = { SECO: '#f59e0b', REFRIGERADO: '#38bdf8', CONGELADO: '#6366f1' };
+  const leyendaZonas = Object.keys(COLOR_ZONA).map(z => `<span><i class="sw" style="background:${COLOR_ZONA[z]}"></i>${z}</span>`).join('');
+
+  return `<div class="card plano-card">
+    <div class="row plano-barra"><h2 style="flex:1">Ocupación de las ubicaciones de picking</h2>
+      <select data-zonaplano aria-label="Zona">${zonas.map(z => `<option value="${z}" ${z === zonaPlano ? 'selected' : ''}>${z || 'Todas las zonas'}</option>`).join('')}</select>
+      <button class="btn ${conPlanAplicado ? '' : 'p'}" data-ocupacion="0">Situación actual</button>
+      <button class="btn ${conPlanAplicado ? 'p' : ''}" data-ocupacion="1">Con el plan aplicado</button>
+    </div>
+    <div class="plano-stats">
+      <span class="chip-plano"><b>${fmt(total)}</b> racks</span>
+      <span class="chip-plano"><b>${fmt(conStock)}</b> con stock</span>
+      <span class="chip-plano"><b>${fmt(total - conStock)}</b> libres</span>
+      <span class="chip-plano er"><b>${fmt(llenos)}</b> sobre capacidad</span>
+      <span class="chip-plano"><b>${fmt(promedio * 100, 0)} %</b> llenado promedio</span>
+    </div>
+    <div class="plano-cuerpo">${dibujarPlano(planta, { ocupacion, zona: zonaPlano, seleccionado: sel ? sel.id : '', clase: 'compacto' })}</div>
+    <div class="plano-leyenda">${leyendaZonas}
+      <span><i class="sw" style="border:2px solid #dc2626;background:#fff"></i>sobre capacidad</span>
+      <span><i class="sw" style="background:#f97316"></i>rack seleccionado</span>
+      <span>Color más intenso = más lleno</span>
+    </div>
+    ${detalle}
+  </div>`;
 }
 
 // Explica en pantalla por qué hay SKUs sin ubicación o traslados que no se pueden aplicar
@@ -2566,9 +2610,9 @@ function render() {
 
   return (
     encabezado(TITULO, SUBTITULO, `<button class="btn" id="exportar">⬇ Exportar plan</button>`) +
-    avisosDelPlan(ubicaciones.avisos) +
-    `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes'), 'metros de recorrido por periodo si se aplican todos')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>
-<div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de traslados</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Plano de la planta</button></div>` +
+    (pestana == 1 ? avisosDelPlan(ubicaciones.avisos) : '') +
+    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes'), 'metros de recorrido por periodo si se aplican todos')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
+`<div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de traslados</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Plano de la planta</button></div>` +
     (pestana == 1 ? planDeTraslados(ubicaciones.traslados, total, filtro, ui.ubicaciones.filtros) : planoDeRacks(ubicaciones, ocupacion))
   );
 }
@@ -2581,6 +2625,21 @@ function enlazar({ refrescar }) {
   alClick('[data-ocupacion]', boton => {
     ui.ubicaciones.ocupacion = +boton.dataset.ocupacion;
     refrescar();
+  });
+
+  document.querySelectorAll('[data-zonaplano]').forEach(selector => {
+    selector.onchange = () => {
+      ui.ubicaciones.zonaPlano = selector.value;
+      refrescar();
+    };
+  });
+  // Clic en un rack: lo selecciona (o lo deselecciona si ya estaba elegido)
+  document.querySelectorAll('.plano-card [data-ubicacion]').forEach(rack => {
+    rack.onclick = () => {
+      const id = rack.dataset.ubicacion;
+      ui.ubicaciones.rackPlano = ui.ubicaciones.rackPlano === id ? '' : id;
+      refrescar();
+    };
   });
 
   document.querySelectorAll('[data-filtro]').forEach(selector => {
@@ -2735,8 +2794,7 @@ function iniciarAnimacion({ planta, recorrido, paradas, lineasPorParada = {}, aj
     const tramo = tramos.find(x => ahora <= x.t1) || tramos[tramos.length - 1];
     if (ahora >= duracion) {
       estado.textContent = 'Pedido armado y de regreso en el muelle.';
-    } else if (tramo.tipo === 'parada') {
-      estado.textContent = `Parada ${tramo.paso} de ${paradas.length} · recogiendo en ${tramo.ubicacion} ${descripcion(tramo.ubicacion)}`;
+    } else if (tramo.tipo === 'parada') {      estado.textContent = `Parada ${tramo.paso} de ${paradas.length} · recogiendo en ${tramo.ubicacion} ${descripcion(tramo.ubicacion)}`;
     } else if (tramo.paso > paradas.length) {
       estado.textContent = 'Regresando al muelle.';
     } else {
@@ -3194,7 +3252,8 @@ function enlazar({ refrescar }) {
       const items = opcionesVisibles();
       if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length) {
         e.preventDefault();
-        marcar((indice + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length);        items[indice].scrollIntoView?.({ block: 'nearest' });
+        marcar((indice + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length);
+        items[indice].scrollIntoView?.({ block: 'nearest' });
       } else if (e.key === 'Enter' && indice >= 0 && items[indice]) {
         e.preventDefault();
         elegir(items[indice].dataset.sku);
@@ -3434,8 +3493,7 @@ function conteoCiclico(inventario) {
     `<button class="btn" data-semana-nav="1" ${semana >= semanas || texto ? 'disabled' : ''}>Siguiente ›</button></div>`;
   return (
     `<div class="barra-filtros"><input id="filtro-conteo" class="buscar" placeholder="Buscar por SKU o producto…" value="${esc(ui.inventario.filtroConteo || '')}"></div>` +
-    `<p class="mu">${resumen}</p>` +
-    (texto ? '' : `<p class="mu">${proximo}</p>`) +
+    `<p class="mu">${resumen}</p>` +    (texto ? '' : `<p class="mu">${proximo}</p>`) +
     tabla(
       ['Orden', 'SKU', 'Producto', 'Zona', 'Rack', 'ABC', 'Stock sistema', 'Conteo físico', 'Diferencia', 'Valor dif.', 'Motivo'],
       filas.map(s => {
@@ -3725,9 +3783,9 @@ function render({ editable = false } = {}) {
   return (
     encabezado(TITULO, SUBTITULO, botones) +
     aviso +
-    `<div class="grid g2">${GRUPOS_AJUSTES.map(
-      ([titulo, campos]) => `<div class="card"><h2>${titulo}</h2>${campos.map(campo).join('')}</div>`
-    ).join('')}</div><div class="card"><h2>Acerca de</h2><p>AXIONLOG web · versión 2.0. Los datos se leen de su Google Sheet cada vez que se abre la app. En este navegador solo se guardan el enlace del Sheet y estos ajustes.</p></div>`
+    `<div class="ajustes-grid">${GRUPOS_AJUSTES.map(
+      ([titulo, campos]) => `<div class="card aj"><h2>${titulo}</h2>${campos.map(campo).join('')}</div>`
+    ).join('')}<div class="card aj aj-todo"><h2>Acerca de</h2><p>AXIONLOG web · versión 2.0. Los datos se leen de su Google Sheet cada vez que se abre la app. En este navegador solo se guardan el enlace del Sheet y estos ajustes.</p></div></div>`
   );
 }
 
@@ -3993,7 +4051,8 @@ function agruparEnLineas(celdas) {
     const ordenadas = [...lista].sort((a, b) => a[eje] - b[eje]);
     const grupos = [];
     ordenadas.forEach(c => {
-      const ultimo = grupos[grupos.length - 1];      if (ultimo && c[eje] - ultimo.ref <= tolerancia) {
+      const ultimo = grupos[grupos.length - 1];
+      if (ultimo && c[eje] - ultimo.ref <= tolerancia) {
         ultimo.celdas.push(c);
         ultimo.ref = c[eje];
       } else {
@@ -4133,8 +4192,7 @@ function detectarMuros(imagen, paleta, grosorMinimo = 8, paso = 2) {
       if (n && oscuros / n >= 0.5) muro[cy * columnas + cx] = 1;
     }
   }
-  // Un borde suavizado puede variar 1 bloque entre filas: se tolera para que el muro no se parta en franjas finas
-  return rectangulosDeBloques(muro, columnas, filas, paso, ancho, alto, 1, grosorMinimo, 12);
+  // Un borde suavizado puede variar 1 bloque entre filas: se tolera para que el muro no se parta en franjas finas  return rectangulosDeBloques(muro, columnas, filas, paso, ancho, alto, 1, grosorMinimo, 12);
 }
 
 // --- 5. Pasillos: zonas por donde sí se puede caminar (morado claro, fondo de cámara y «Puente»).
@@ -4792,7 +4850,8 @@ function enlazar({ refrescar }) {
   alCambiarCada('[data-hueco]', (valor, el) => {
     const [i, despuesDe] = el.dataset.hueco.split(':').map(Number);
     const linea = asistente.lineas[i];
-    linea.saltos = linea.saltos || {};    if (valor === '') delete linea.saltos[despuesDe];
+    linea.saltos = linea.saltos || {};
+    if (valor === '') delete linea.saltos[despuesDe];
     else linea.saltos[despuesDe] = Math.max(1, Math.round(Number(valor)));
     refrescar();
   });
@@ -4832,8 +4891,7 @@ function enlazar({ refrescar }) {
       };
     });
     alClick('#prueba-limpiar', () => {
-      asistente.prueba = [];
-      asistente.pruebaManual = true;
+      asistente.prueba = [];      asistente.pruebaManual = true;
       refrescar();
     });
     alClick('#prueba-azar', () => {
