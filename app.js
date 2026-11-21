@@ -497,8 +497,7 @@ function construirPlanta(layout) {
       for (let paso = 1; paso <= COLOCACION_EN_FRENTE; paso++) {
         cx += dx;
         cy += dy;
-        if (cx < 0 || cy < 0 || cx >= columnas || cy >= filas) return;
-        const valor = mapa[cy * columnas + cx];
+        if (cx < 0 || cy < 0 || cx >= columnas || cy >= filas) return;        const valor = mapa[cy * columnas + cx];
         if (valor === 2) return; // un muro: ese lado no sirve
         if (valor === 0) {
           if (paso < pasosMejor) {
@@ -697,7 +696,8 @@ function construirCatalogo(datos, ajustes) {
     }
   });
 
-  // --- Pedidos: se agrupan las líneas de cada pedido y se ordenan del más reciente al más antiguo  const agrupados = new Map();
+  // --- Pedidos: se agrupan las líneas de cada pedido y se ordenan del más reciente al más antiguo
+  const agrupados = new Map();
   pedidos.forEach((p, i) => {
     if (!agrupados.has(p.pedidoid)) {
       agrupados.set(p.pedidoid, {
@@ -996,7 +996,6 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
     for (const rack in ocupado) ocupado[rack] /= capacidad[rack];
     return ocupado;
   };
-
   // --- Rack ideal de cada SKU (solo racks alcanzables de su zona, los más cercanos al muelle primero)
   const usado = {};
   racks.forEach(r => (usado[r.id] = 0));
@@ -1396,7 +1395,8 @@ function simularReposicion({ inventario, otif }, ajustes, escenario, proyeccion)
 
   // Si hay más SKUs en riesgo, aumentan las incidencias por «falta de productos»
   const incidenciasFaltaDeProductos =
-    proyeccion.incidencias * participacionDeCausa(otif.causas, 'faltadeprod');  const otifEstimado =
+    proyeccion.incidencias * participacionDeCausa(otif.causas, 'faltadeprod');
+  const otifEstimado =
     proyeccion.otifProyectado +
     -otif.regresion.pendiente *
       (incidenciasFaltaDeProductos * (1 - ajustes.rRop / 100)) *
@@ -1495,8 +1495,7 @@ function parseCsv(texto) {
         } else entreComillas = false;
       } else celda += c;
     } else if (c === '"') entreComillas = true;
-    else if (c === separador) {
-      fila.push(celda);
+    else if (c === separador) {      fila.push(celda);
       celda = '';
     } else if (c === '\n' || c === '\r') {
       if (c === '\r' && texto[i + 1] === '\n') i++;
@@ -1756,7 +1755,8 @@ async function leerHoja(enlace, descargar = fetch) {
   const pestanas = await Promise.all(
     PESTANAS.map(async definicion => {
       try {
-        const respuesta = await descargar(urlCsv(id, definicion.nombre));
+        // Cada lectura pide la copia actual: sin esto Google y el navegador pueden devolver una copia guardada
+        const respuesta = await descargar(`${urlCsv(id, definicion.nombre)}&_=${Date.now()}`, { cache: 'no-store' });
         if (respuesta.status === 400 || respuesta.status === 404) {
           // La pestaña no existe con ese nombre: se dice así en vez de un error de conexión
           return { definicion, error: definicion.opcional ? 'no existe (es opcional)' : 'no existe la pestaña (revise el nombre)' };
@@ -1994,8 +1994,7 @@ const COLOR_TIPO = {
   almacenaje: '#f0aa3a',
   staging: '#59ae47',
   pnc: '#dc4f48',
-  otro: '#9ba0a6'
-};
+  otro: '#9ba0a6'};
 const RGB_ZONA = { SECO: '245,158,11', REFRIGERADO: '56,189,248', CONGELADO: '99,102,241' };
 
 // Nombres de las columnas y filas (SA, SB, CA…): se sacan de los códigos de las ubicaciones (SB-17 → SB)
@@ -2095,7 +2094,8 @@ return __e;
 })();
 
 // ===== nucleo/requisitos.js =====
-__m["nucleo/requisitos.js"] = (function () {const __e = {};
+__m["nucleo/requisitos.js"] = (function () {
+const __e = {};
 // Cada pantalla necesita ciertas tablas del Sheet. Si faltan, se muestra un aviso en vez de la pantalla.
 
 const { modelo, conexion } = __m["nucleo/estado.js"];
@@ -2310,7 +2310,7 @@ async function descargarDiagnosticoPdf() {
   const hoy = new Date();
   area.innerHTML =
     diagnostico.render() +
-    `<p class="mu pie-pdf">Copia generada el ${hoy.toLocaleDateString('es-PE')} · AXIONLOG · Meta OTIF ${ajustes.meta} %</p>`;
+    `<p class="mu pie-pdf">Copia generada el ${hoy.toLocaleDateString('es-PE')} · 3PL · Meta OTIF ${ajustes.meta} %</p>`;
   area.querySelectorAll('.no-pdf').forEach(e => e.remove()); // los botones no van en el PDF
   // Se muestra fuera de la pantalla solo mientras se captura, con ancho de hoja A4
   Object.assign(area.style, {
@@ -2493,8 +2493,7 @@ const __e = {};
 const { modelo, ui } = __m["nucleo/estado.js"];
 const { planta } = __m["nucleo/planta.js"];
 const { fmt, esc } = __m["nucleo/formato.js"];
-const { kpi, tabla, encabezado, etiqueta, etiquetaZona } = __m["nucleo/html.js"];
-const { dibujarPlano } = __m["nucleo/graficos.js"];
+const { kpi, tabla, encabezado, etiqueta, etiquetaZona } = __m["nucleo/html.js"];const { dibujarPlano } = __m["nucleo/graficos.js"];
 const { descargarCsv } = __m["nucleo/csv.js"];
 const { $, alClick } = __m["nucleo/dom.js"];
 const { pantallaVacia } = __m["nucleo/requisitos.js"];
@@ -2794,7 +2793,8 @@ function iniciarAnimacion({ planta, recorrido, paradas, lineasPorParada = {}, aj
     const tramo = tramos.find(x => ahora <= x.t1) || tramos[tramos.length - 1];
     if (ahora >= duracion) {
       estado.textContent = 'Pedido armado y de regreso en el muelle.';
-    } else if (tramo.tipo === 'parada') {      estado.textContent = `Parada ${tramo.paso} de ${paradas.length} · recogiendo en ${tramo.ubicacion} ${descripcion(tramo.ubicacion)}`;
+    } else if (tramo.tipo === 'parada') {
+      estado.textContent = `Parada ${tramo.paso} de ${paradas.length} · recogiendo en ${tramo.ubicacion} ${descripcion(tramo.ubicacion)}`;
     } else if (tramo.paso > paradas.length) {
       estado.textContent = 'Regresando al muelle.';
     } else {
@@ -2992,8 +2992,7 @@ function render() {
   const elegir =
     `<div class="card"><h2>Elija el pedido</h2>${origen}` +
     (manual
-      ? cuerpoManual()
-      : `<select id="pedido" style="width:100%">${pedidos.map(p => `<option value="${esc(p.id)}" ${p.id == pedido.id ? 'selected' : ''}>${esc(p.id)} · ${esc(p.tienda)} · ${p.lineas.length} líneas</option>`).join('')}</select>`) +
+      ? cuerpoManual()      : `<select id="pedido" style="width:100%">${pedidos.map(p => `<option value="${esc(p.id)}" ${p.id == pedido.id ? 'selected' : ''}>${esc(p.id)} · ${esc(p.tienda)} · ${p.lineas.length} líneas</option>`).join('')}</select>`) +
     (manual ? '' : `<button class="btn p" id="completar" style="margin-top:10px">Marcar como completado</button>`) +
     `</div>`;
   const plan = `<div class="card"><h2>Plan de distribución</h2><div class="tabs"><button class="${conPlan ? '' : 'on'}" data-plan="0">Ubicaciones actuales</button><button class="${conPlan ? 'on' : ''}" data-plan="1">Con plan aplicado</button></div></div>`;
@@ -3492,8 +3491,8 @@ function conteoCiclico(inventario) {
     `<b>${texto ? 'Búsqueda' : `Página ${semana} de ${semanas}`}</b>` +
     `<button class="btn" data-semana-nav="1" ${semana >= semanas || texto ? 'disabled' : ''}>Siguiente ›</button></div>`;
   return (
-    `<div class="barra-filtros"><input id="filtro-conteo" class="buscar" placeholder="Buscar por SKU o producto…" value="${esc(ui.inventario.filtroConteo || '')}"></div>` +
-    `<p class="mu">${resumen}</p>` +    (texto ? '' : `<p class="mu">${proximo}</p>`) +
+    `<div class="barra-filtros"><input id="filtro-conteo" class="buscar" placeholder="Buscar por SKU o producto…" value="${esc(ui.inventario.filtroConteo || '')}"></div>` +    `<p class="mu">${resumen}</p>` +
+    (texto ? '' : `<p class="mu">${proximo}</p>`) +
     tabla(
       ['Orden', 'SKU', 'Producto', 'Zona', 'Rack', 'ABC', 'Stock sistema', 'Conteo físico', 'Diferencia', 'Valor dif.', 'Motivo'],
       filas.map(s => {
@@ -3785,7 +3784,7 @@ function render({ editable = false } = {}) {
     aviso +
     `<div class="ajustes-grid">${GRUPOS_AJUSTES.map(
       ([titulo, campos]) => `<div class="card aj"><h2>${titulo}</h2>${campos.map(campo).join('')}</div>`
-    ).join('')}<div class="card aj aj-todo"><h2>Acerca de</h2><p>AXIONLOG web · versión 2.0. Los datos se leen de su Google Sheet cada vez que se abre la app. En este navegador solo se guardan el enlace del Sheet y estos ajustes.</p></div></div>`
+    ).join('')}<div class="card aj aj-todo"><h2>Acerca de</h2><p>3PL web · versión 2.0. Los datos se leen de su Google Sheet cada vez que se abre la app. En este navegador solo se guardan el enlace del Sheet y estos ajustes.</p></div></div>`
   );
 }
 
@@ -3991,8 +3990,7 @@ function detectarCeldas(imagen, paleta) {
   const encontradas = [];
   const bloqueo = mascaraOscura(imagen);
   TIPOS.forEach(tipo => {
-    const mascara = mascaraDeColor(imagen, paleta[tipo], tipo === 'otro' ? TOLERANCIA_GRIS : TOLERANCIA_COLOR);
-    componentes(mascara, ancho, alto, RADIO_CIERRE, bloqueo).forEach(c => {
+    const mascara = mascaraDeColor(imagen, paleta[tipo], tipo === 'otro' ? TOLERANCIA_GRIS : TOLERANCIA_COLOR);    componentes(mascara, ancho, alto, RADIO_CIERRE, bloqueo).forEach(c => {
       encontradas.push({ tipo, x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1, area: c.area });
     });
   });
@@ -4192,7 +4190,8 @@ function detectarMuros(imagen, paleta, grosorMinimo = 8, paso = 2) {
       if (n && oscuros / n >= 0.5) muro[cy * columnas + cx] = 1;
     }
   }
-  // Un borde suavizado puede variar 1 bloque entre filas: se tolera para que el muro no se parta en franjas finas  return rectangulosDeBloques(muro, columnas, filas, paso, ancho, alto, 1, grosorMinimo, 12);
+  // Un borde suavizado puede variar 1 bloque entre filas: se tolera para que el muro no se parta en franjas finas
+  return rectangulosDeBloques(muro, columnas, filas, paso, ancho, alto, 1, grosorMinimo, 12);
 }
 
 // --- 5. Pasillos: zonas por donde sí se puede caminar (morado claro, fondo de cámara y «Puente»).
@@ -4490,8 +4489,7 @@ const COLOR_DE_ZONA = { SECO: '#f59e0b', REFRIGERADO: '#0ea5e9', CONGELADO: '#63
 // Todo lo que el asistente va recordando mientras se usa
 const asistente = {
   paso: 1,
-  archivo: '',
-  imagen: null, // { data, ancho, alto } con los píxeles
+  archivo: '',  imagen: null, // { data, ancho, alto } con los píxeles
   fuente: null, // lienzo con la imagen, para dibujar encima
   paleta: { ...PALETA_INICIAL },
   tomando: null, // color que se está tomando de la imagen con un clic
@@ -4891,7 +4889,8 @@ function enlazar({ refrescar }) {
       };
     });
     alClick('#prueba-limpiar', () => {
-      asistente.prueba = [];      asistente.pruebaManual = true;
+      asistente.prueba = [];
+      asistente.pruebaManual = true;
       refrescar();
     });
     alClick('#prueba-azar', () => {
@@ -4989,8 +4988,7 @@ const USUARIOS = {
 const PANTALLAS_SOLO_LECTURA = ['datos', 'aju'];
 // Pantallas que el operario no puede abrir ni ver en la pantalla Datos
 const PANTALLAS_SOLO_SUPERVISOR = ['layout'];
-// Cada cuántos minutos se vuelve a leer el Sheet, para que ambos vean los cambios del otro
-const MINUTOS_ACTUALIZACION = 5;
+// Cada cuántos minutos se vuelve a leer el Sheet, para que ambos vean los cambios del otroconst MINUTOS_ACTUALIZACION = 5;
 const CLAVE_SESION = 'axionlog-sesion';
 
 function usuarioActual() {
@@ -5010,7 +5008,7 @@ const puedeEditar = () => !!(usuarioActual() && usuarioActual().puedeEditar);
 
 function dibujarLogin(mensaje = '') {
   document.body.classList.add('sin-sesion');
-  $('#view').innerHTML = `<div class="login-wrap"><div class="login-marca-grande"><div class="login-icono">✱</div><div class="login-nombre">AXIONLOG</div><p>Planta 0801 · Gestión OTIF</p></div><form class="card login" id="login-form" autocomplete="off">
+  $('#view').innerHTML = `<div class="login-wrap"><div class="login-marca-grande"><div class="login-icono">✱</div><div class="login-nombre">3PL</div><p>Planta 0801 · Gestión OTIF</p></div><form class="card login" id="login-form" autocomplete="off">
 <h2 class="login-titulo">Iniciar sesión</h2>
 <label class="campo-enlace"><span>Usuario</span><input id="login-usuario" autocomplete="username" required></label>
 <label class="campo-enlace"><span>Contraseña</span><input id="login-clave" type="password" autocomplete="current-password" required></label>
