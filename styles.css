@@ -218,3 +218,21 @@ table tr:hover td{background:#eef4ff}
 .combo-lista li:hover,.combo-lista li.activo{background:#eef4ff}
 .combo-lista li.sin{color:var(--mu);cursor:default}
 .combo-lista li.sin:hover{background:none}
+
+/* Pantalla de inicio de sesión */
+body.sin-sesion main{padding:0}
+.login-wrap{position:fixed;inset:0;z-index:20;overflow:auto;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:56px;padding:32px;box-sizing:border-box;
+  background:radial-gradient(circle at 12% 18%,rgba(59,130,246,.45),transparent 42%),radial-gradient(circle at 88% 85%,rgba(14,165,233,.30),transparent 46%),linear-gradient(160deg,#0b1532 0%,#14296b 55%,#1d4ed8 100%)}
+.login-marca-grande{color:#fff;max-width:360px}
+.login-icono{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,#60a5fa,#2563eb);color:#fff;font-size:30px;box-shadow:0 10px 28px rgba(37,99,235,.45);flex:none}
+.login-nombre{font-size:44px;font-weight:800;letter-spacing:.03em;margin-top:20px;line-height:1.05}
+.login-marca-grande p{color:#b9c7e8;font-size:16px;margin:10px 0 0}
+.login-marca-grande p::before{content:"";display:block;width:56px;height:4px;border-radius:4px;background:#60a5fa;margin:0 0 14px}
+.login{width:min(400px,100%);margin:0;padding:34px 32px;border:none;border-radius:20px;background:rgba(255,255,255,.97);box-shadow:0 30px 70px rgba(0,0,0,.35)}
+.login-titulo{font-size:22px;margin:0 0 4px;color:var(--tx)}
+.login .campo-enlace{margin:16px 0 0}
+.login .campo-enlace span{font-size:13px;color:var(--mu)}
+.login .campo-enlace input{height:46px;padding:0 14px;font-size:15px;border-radius:12px}
+.login .btn{width:100%;height:48px;font-size:15px;margin-top:24px;border-radius:12px}
+.login-error{margin-top:16px;padding:10px 12px;border-radius:12px;background:#fef2f2;color:var(--er);border:1px solid #fecaca;font-size:14px}
+@media (max-width:760px){.login-wrap{flex-direction:column;gap:28px;padding:24px 18px}.login-nombre{font-size:34px}.login-marca-grande{text-align:center}.login-marca-grande p::before{margin:0 auto 14px}.login-icono{margin:0 auto}}
