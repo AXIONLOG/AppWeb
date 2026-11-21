@@ -3397,16 +3397,14 @@ function planDeCompras(inventario) {
         (!texto || (s.sku + ' ' + s.descripcion).toLowerCase().includes(texto))
     )
     .sort((a, b) => HORIZONTES.indexOf(a.h.nombre) - HORIZONTES.indexOf(b.h.nombre) || (a.h.dias ?? 0) - (b.h.dias ?? 0));
-  const fechaTexto = h => (h.fecha ? (h.dias <= 0 ? 'Hoy' : h.fecha.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })) : '—');
   return (
     `<div class="barra-filtros"><input id="filtro-plan" class="buscar" placeholder="Buscar por SKU o producto…" value="${esc(ui.inventario.filtroPlan || '')}"><div class="campos">${selectorFiltro('cuando', HORIZONTES, f.cuando)}${selectorFiltro('cliente', unicos('cliente'), f.cliente)}${selectorFiltro('zona', unicos('zona'), f.zona)}${selectorFiltro('abc', ['A', 'B', 'C'], f.abc)}</div></div>` +
     `<p class="mu">Mostrando ${filas.length} SKUs que hay que comprar hasta fin de este mes.</p>` +
     tabla(
-      ['Decisión', 'Cuándo pedir', 'Pedir antes del', 'SKU', 'Producto', 'Zona', 'Un.', 'Stock hoy', 'Venta diaria', 'Stock a fin de mes', 'Stock seguridad', 'Falta comprar', 'Inversión'],
+      ['Decisión', 'Cuándo pedir', 'SKU', 'Producto', 'Zona', 'Un.', 'Stock hoy', 'Venta diaria', 'Stock a fin de mes', 'Stock seguridad', 'Falta comprar', 'Inversión'],
       filas.map(({ s, h }) => [
         etiqueta(CLASE_ESTADO[s.estado][0], CLASE_ESTADO[s.estado][1]),
         h.nombre,
-        fechaTexto(h),
         esc(s.sku),
         esc(s.descripcion),
         etiquetaZona(s.zona),
@@ -3491,9 +3489,9 @@ function conteoCiclico(inventario) {
     `<b>${texto ? 'Búsqueda' : `Página ${semana} de ${semanas}`}</b>` +
     `<button class="btn" data-semana-nav="1" ${semana >= semanas || texto ? 'disabled' : ''}>Siguiente ›</button></div>`;
   return (
-    `<div class="barra-filtros"><input id="filtro-conteo" class="buscar" placeholder="Buscar por SKU o producto…" value="${esc(ui.inventario.filtroConteo || '')}"></div>` +    `<p class="mu">${resumen}</p>` +
-    (texto ? '' : `<p class="mu">${proximo}</p>`) +
-    tabla(
+    `<div class="barra-filtros"><input id="filtro-conteo" class="buscar" placeholder="Buscar por SKU o producto…" value="${esc(ui.inventario.filtroConteo || '')}"></div>` +
+    `<p class="mu">${resumen}</p>` +
+    (texto ? '' : `<p class="mu">${proximo}</p>`) +    tabla(
       ['Orden', 'SKU', 'Producto', 'Zona', 'Rack', 'ABC', 'Stock sistema', 'Conteo físico', 'Diferencia', 'Valor dif.', 'Motivo'],
       filas.map(s => {
         // Sin conteo físico no hay diferencia: se deja en blanco (—) en lugar de suponer un valor
@@ -3990,9 +3988,9 @@ function detectarCeldas(imagen, paleta) {
   const encontradas = [];
   const bloqueo = mascaraOscura(imagen);
   TIPOS.forEach(tipo => {
-    const mascara = mascaraDeColor(imagen, paleta[tipo], tipo === 'otro' ? TOLERANCIA_GRIS : TOLERANCIA_COLOR);    componentes(mascara, ancho, alto, RADIO_CIERRE, bloqueo).forEach(c => {
-      encontradas.push({ tipo, x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1, area: c.area });
-    });
+    const mascara = mascaraDeColor(imagen, paleta[tipo], tipo === 'otro' ? TOLERANCIA_GRIS : TOLERANCIA_COLOR);
+    componentes(mascara, ancho, alto, RADIO_CIERRE, bloqueo).forEach(c => {
+      encontradas.push({ tipo, x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1, area: c.area });    });
   });
 
   // Se descartan manchas pequeñas (bordes, textos) y formas que no parecen una ubicación
@@ -4489,9 +4487,9 @@ const COLOR_DE_ZONA = { SECO: '#f59e0b', REFRIGERADO: '#0ea5e9', CONGELADO: '#63
 // Todo lo que el asistente va recordando mientras se usa
 const asistente = {
   paso: 1,
-  archivo: '',  imagen: null, // { data, ancho, alto } con los píxeles
-  fuente: null, // lienzo con la imagen, para dibujar encima
-  paleta: { ...PALETA_INICIAL },
+  archivo: '',
+  imagen: null, // { data, ancho, alto } con los píxeles
+  fuente: null, // lienzo con la imagen, para dibujar encima  paleta: { ...PALETA_INICIAL },
   tomando: null, // color que se está tomando de la imagen con un clic
   lectura: null, // resultado de leer el plano
   lineas: [], // columnas y filas, con lo que el cliente corrige
@@ -4988,9 +4986,9 @@ const USUARIOS = {
 const PANTALLAS_SOLO_LECTURA = ['datos', 'aju'];
 // Pantallas que el operario no puede abrir ni ver en la pantalla Datos
 const PANTALLAS_SOLO_SUPERVISOR = ['layout'];
-// Cada cuántos minutos se vuelve a leer el Sheet, para que ambos vean los cambios del otroconst MINUTOS_ACTUALIZACION = 5;
+// Cada cuántos minutos se vuelve a leer el Sheet, para que ambos vean los cambios del otro
+const MINUTOS_ACTUALIZACION = 5;
 const CLAVE_SESION = 'axionlog-sesion';
-
 function usuarioActual() {
   try {
     const usuario = sessionStorage.getItem(CLAVE_SESION);
