@@ -23,6 +23,16 @@ main{padding:20px}h1{margin:0;font-size:26px}h2{font-size:16px;margin:0 0 8px}.m
 .barra-filtros select{width:100%;padding:8px 10px;font-size:14px;font-weight:400;color:var(--tx)}
 svg{width:100%;height:auto}.bar{display:flex;align-items:center;gap:8px;margin:5px 0}.bar span{width:210px;text-align:right;font-weight:600;font-size:13px}.bar div{flex:1;background:#eef1f6;border-radius:4px;height:14px}.bar i{display:block;height:100%;border-radius:4px}
 .task{display:flex;gap:14px;align-items:center;border-left:5px solid var(--er)}.task big{font-size:38px;font-weight:800;min-width:60px}.task.a{border-color:var(--wa)}.task.b{border-color:var(--ac)}
+/* Ajustes: columnas que se balancean solas, sin huecos */
+.ajustes-grid{columns:3 300px;column-gap:14px}
+.ajustes-grid>.aj{display:block;width:100%;break-inside:avoid;margin:0 0 14px;border-top:3px solid var(--ac);padding:16px 18px}
+.ajustes-grid>.aj:nth-child(3n+2){border-top-color:var(--ok)}
+.ajustes-grid>.aj:nth-child(3n){border-top-color:var(--wa)}
+.ajustes-grid>.aj h2{margin:0 0 8px}
+.ajustes-grid>.aj-todo{column-span:all;border-top-color:var(--nv)}
+.ajustes-grid .fld{grid-template-columns:1fr 120px}
+@media (max-width:900px){.ajustes-grid{columns:2 260px}}
+@media (max-width:560px){.ajustes-grid{columns:1}}
 .fld{display:grid;grid-template-columns:1fr 110px;gap:4px 10px;align-items:center;margin:6px 0}.fld small{grid-column:1/-1;color:var(--mu);margin-top:-4px}
 .ok2{color:var(--ok)}.wn{color:var(--wa)}
 @media(max-width:800px){aside{position:fixed;z-index:9;height:100vh}#wrap{margin-left:0}}
@@ -236,3 +246,21 @@ body.sin-sesion main{padding:0}
 .login .btn{width:100%;height:48px;font-size:15px;margin-top:24px;border-radius:12px}
 .login-error{margin-top:16px;padding:10px 12px;border-radius:12px;background:#fef2f2;color:var(--er);border:1px solid #fecaca;font-size:14px}
 @media (max-width:760px){.login-wrap{flex-direction:column;gap:28px;padding:24px 18px}.login-nombre{font-size:34px}.login-marca-grande{text-align:center}.login-marca-grande p::before{margin:0 auto 14px}.login-icono{margin:0 auto}}
+
+/* Plano de racks: vista compacta que cabe en una pantalla */
+.plano-card .plano-barra{flex-wrap:wrap;gap:8px;align-items:center}
+.plano-barra select{padding:6px 8px;border:1px solid #d6dce6;border-radius:8px;font:inherit;background:#fff}
+.plano-stats{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 8px}
+.chip-plano{background:#f1f5fb;border-radius:999px;padding:4px 10px;font-size:13px;color:#334155}
+.chip-plano b{color:#0b3a72}
+.chip-plano.er{background:#fee2e2}
+.chip-plano.er b{color:#b91c1c}
+.plano-cuerpo svg.plano{display:block;width:100%;height:auto;max-height:clamp(260px,calc(100vh - 420px),560px)}
+.plano-cuerpo svg.plano rect[data-ubicacion]{cursor:pointer}
+.plano-leyenda{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;color:#475569;margin-top:8px}
+.plano-leyenda span{display:inline-flex;align-items:center}
+.plano-leyenda .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px}
+.plano-detalle{margin-top:10px;padding:10px 12px;border-radius:10px;background:#f8fafc;border:1px solid #e2e8f0;font-size:13px}
+.sku-lista{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.sku-lista span{background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:2px 6px;font-family:monospace;font-size:12px}
+.plano-ayuda{margin:8px 0 0;font-size:12px;color:#64748b}
