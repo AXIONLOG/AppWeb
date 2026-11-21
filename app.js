@@ -26,6 +26,7 @@ const AJUSTES_POR_DEFECTO = {
   vent: 90, // ventana para calcular la demanda (días)
   cv: 0.3, // variabilidad de la demanda
   eri: 98, // meta de exactitud de inventario (%)
+  toleranciaEri: 1, // tolerancia bajo la meta, en puntos porcentuales
   rUb: 50, // reducción de incidencias por ubicaciones erróneas con el módulo 1 (%)
   rEri: 50, // reducción de diferencias en conteos con el módulo 3 (%)
   rRop: 50, // reducción de falta de productos con el módulo 3 (%)
@@ -64,6 +65,7 @@ const GRUPOS_AJUSTES = [
       ['vent', 'Ventana para calcular la demanda (días)'],
       ['cv', 'Variabilidad de demanda (CV)'],
       ['eri', 'Meta de exactitud ERI (%)'],
+      ['toleranciaEri', 'Tolerancia de ERI (puntos %)'],
       ['fotoStock', 'Día de la foto del stock (AAAAMMDD)'],
       ['corteStock', 'Corte de datos (AAAAMMDD, 0 = último día del mes anterior)'],
       ['frecuenciaConteo', 'Frecuencia del conteo físico (días)']
@@ -795,8 +797,7 @@ function calcularInventario(catalogo, ajustes) {
         stockSeguridad,
         puntoReorden,
         cobertura: demanda ? Math.max(0, s.stockActual) / demanda : 999, // días de stock
-        cantidadPedir: necesario ? Math.ceil(necesario / s.lote) * s.lote : 0,
-        inversion: (necesario ? Math.ceil(necesario / s.lote) * s.lote : 0) * s.costo,
+        cantidadPedir: necesario ? Math.ceil(necesario / s.lote) * s.lote : 0,        inversion: (necesario ? Math.ceil(necesario / s.lote) * s.lote : 0) * s.costo,
         estado:
           s.stockActual <= puntoReorden
             ? 'PEDIR'
@@ -828,6 +829,21 @@ function calcularInventario(catalogo, ajustes) {
       .map(s => ({ ...s, motivo: 'Alta rotación' }))
   ];
 
+  // ERI por zona: el mismo criterio que el general, usando solo los SKUs de cada zona
+  const porZona = ['SECO', 'REFRIGERADO', 'CONGELADO'].map(zona => {
+    const delZona = skus.filter(s => s.zona === zona);
+    const contadosZona = delZona.filter(s => s.stockFisico !== null);
+    const difZona = contadosZona.filter(tieneDiferencia);
+    const valorZona = sum(delZona, s => s.stockSistema * s.costo);
+    return {
+      zona,
+      contados: contadosZona.length,
+      diferencias: difZona.length,
+      eri: contadosZona.length ? 1 - difZona.length / contadosZona.length : 0,
+      eriValorizado: 1 - sum(difZona, valorDiferencia) / (valorZona || 1)
+    };
+  });
+
   return {
     reposicion,
     filas,
@@ -842,6 +858,7 @@ function calcularInventario(catalogo, ajustes) {
     sobrantes: diferencias.length - faltantes,
     diferenciaNeta: sum(diferencias, s => (s.stockFisico - s.stockSistema) * s.costo),
     valorInventario,
+    porZona,
     conteoSemanal
   };
 }
@@ -1000,9 +1017,6 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
       });
   });
 
-  // Motivo corto según la clase ABC (A = más rotación)
-  const ROTACION = { A: 'Alta rotación', B: 'Media rotación', C: 'Baja rotación' };
-
   // --- Traslados. El volumen que ocupa cada rack parte de la situación real de hoy y solo se mueve
   // un SKU si el rack destino tiene lugar en ese momento: así el plan nunca aumenta la saturación.
   const ocupadoHoy = {};
@@ -1020,6 +1034,21 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
   const sinZonaConRacks = []; // SKU cuya zona no tiene racks alcanzables
   const zonaDesconocida = []; // SKU con una zona que la app no reconoce
   const sinCamino = []; // SKU en un rack sin camino desde el muelle
+  // Motivo del traslado con los datos que existen: cámara, rotación, distancia al muelle y espacio.
+  // «Lejana» y «premium» se miden contra la mediana de distancias de los racks de la misma zona.
+  const medianaDeZona = zona => {
+    const distancias = racksDeZona(zona).map(r => alMuelle(r.id)).sort((a, b) => a - b);
+    return distancias.length ? distancias[Math.floor(distancias.length / 2)] : 0;
+  };
+  const motivoDe = (s, fueraDeCamara) => {
+    if (fueraDeCamara) return 'Fuera de cámara: trasladar primero';
+    if (ocupadoHoy[s.rack] <= 1e-9) return `Libera rack ${s.rack} para otro uso`;
+    const mediana = medianaDeZona(s.zona);
+    if (s.abc === 'A' && alMuelle(s.rack) > mediana) return 'Alta rotación en ubicación lejana';
+    if (s.abc === 'C' && alMuelle(s.rack) <= mediana) return 'Baja rotación ocupando rack premium';
+    return 'Rack propuesto con espacio disponible';
+  };
+
   let ahorro = 0;
 
   skus.forEach(s => {
@@ -1064,7 +1093,7 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
       riesgoTermico: fueraDeCamara,
       ahorroSemanal,
       prioridad: fueraDeCamara ? 'Crítica' : s.abc === 'A' ? 'Alta' : 'Media',
-      motivo: fueraDeCamara ? 'Fuera de cámara' : ROTACION[s.abc]
+      motivo: motivoDe(s, fueraDeCamara)
     });
   });
 
@@ -1108,7 +1137,7 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
         riesgoTermico: false,
         ahorroSemanal: ahorroS,
         prioridad: s.abc === 'A' ? 'Alta' : 'Media',
-        motivo: ROTACION[s.abc]
+        motivo: 'Intercambio: sube a un rack más cercano al muelle'
       });
       traslados.push({
         ...t,
@@ -1117,7 +1146,7 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
         riesgoTermico: false,
         ahorroSemanal: ahorroT,
         prioridad: 'Media',
-        motivo: 'Cede su lugar'
+        motivo: 'Cede su lugar a un producto de más rotación'
       });
       return;
     }
@@ -1567,8 +1596,7 @@ function descargarCsv(nombre, filas) {
   const texto =
     '﻿' +
     filas.map(f => f.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
-  return guardarArchivo(nombre + '.csv', new Blob([texto], { type: 'text/csv' }), 'Archivo CSV', '.csv');
-}
+  return guardarArchivo(nombre + '.csv', new Blob([texto], { type: 'text/csv' }), 'Archivo CSV', '.csv');}
 
 Object.defineProperty(__e, 'parseCsv', { get: () => parseCsv, enumerable: true });
 Object.defineProperty(__e, 'leerTabla', { get: () => leerTabla, enumerable: true });
@@ -2160,6 +2188,13 @@ function render() {
       ],
       '#2563eb'
     )}<p>${fmt(otif.pedidosFuera)} de ${fmt(otif.pedidosTotales)} pedidos quedaron fuera del OTIF.</p><p class="mu">Mejor mes: <b>${mejorMes.mes} · ${fmt(mejorMes.otif, 1)} %</b><br>Peor mes: <b>${peorMes.mes} · ${fmt(peorMes.otif, 1)} %</b><br>Meses bajo la meta: <b>${otif.bajoMeta} de ${otif.completos.length}</b></p></div></div>
+${(() => {
+  const colorDe = valor => (valor * 100 >= ajustes.eri ? '#16a34a' : valor * 100 >= ajustes.eri - ajustes.toleranciaEri ? '#d97706' : '#dc2626');
+  const filas = inventario.porZona.map(z => [z.zona, z.eri * 100, colorDe(z.eri), pc(z.eri)]);
+  filas.push(['Total', inventario.eri * 100, colorDe(inventario.eri), pc(inventario.eri)]);
+  const peor = inventario.porZona.reduce((a, b) => (b.eri < a.eri ? b : a));
+  return `<div class="card"><h2>Desglose del ERI</h2><p class="mu">ERI = SKUs contados que cuadran con el sistema, sobre el total de SKUs contados.</p>${barras(filas, '#2563eb')}<p>${fmt(inventario.diferencias.length)} de ${fmt(inventario.contados)} SKUs contados tienen diferencia.</p><p class="mu">Faltantes: <b>${fmt(inventario.faltantes)}</b> · Sobrantes: <b>${fmt(inventario.sobrantes)}</b><br>Peor zona: <b>${peor.zona} · ${pc(peor.eri)}</b><br>ERI valorizado: <b>${pc(inventario.eriValorizado)}</b><br>Meta ${ajustes.eri} % · Tolerancia de ${ajustes.toleranciaEri} %</p></div>`;
+})()}
 <h2>Tareas ordenadas por urgencia</h2><div class="grid g2"><div class="card task"><big style="color:var(--er)">${aReponer}</big><div><b>Generar pedidos de reposición</b><p class="mu">SKUs en o bajo su punto de reorden. Otros ${inventario.pronto} lo estarán pronto.</p><button class="btn r" data-go="inv">Ver plan de compras →</button></div></div><div class="card task"><big style="color:var(--er)">${ubicaciones ? ubicaciones.riesgoTermico : '—'}</big><div><b>Trasladar productos mal ubicados</b><p class="mu">Productos fuera de su cámara: trasladarlos primero.</p><button class="btn r" data-go="ubic">Ver traslados →</button></div></div><div class="card task a"><big style="color:var(--wa)">${Math.min(40, inventario.diferencias.length)}</big><div><b>Conteo cíclico de la semana</b><p class="mu">Hay ${inventario.diferencias.length} SKUs con diferencia entre sistema y físico: se cuentan primero.</p><button class="btn o" data-go="inv" data-pestana="2">Ver lista de conteo →</button></div></div><div class="card task b"><big style="color:var(--ac)">→</big><div><b>Armar un pedido con la mejor ruta</b><p class="mu">Elija un pedido, vea el recorrido y descargue la hoja de picking.</p><button class="btn p" data-go="pick">Ir a Picking →</button></div></div></div>
 <div class="card"><h2>Estado de los datos</h2>${estadoDeTabla('Inventario', datos.inventario.length, 'SKUs')} ${estadoDeTabla('Pedidos', datos.pedidos.length, 'líneas')} ${estadoDeTabla('OTIF', datos.otif.length, 'meses')} ${estadoDeTabla('Causas', datos.causas.length, 'causas')} ${estadoDeTabla('Layout', datos.ubicaciones.length, 'ubicaciones')} <button class="btn" data-go="datos">Gestionar datos</button><p class="mu">Demanda calculada con ${fmt(catalogo.nPedidos)} pedidos de los últimos ${ajustes.vent} días.</p></div>`
   );
@@ -2360,8 +2395,7 @@ function estadoDeLectura(editable) {
           p =>
             `<li>${p.ok ? '✔' : p.opcional ? '–' : '✘'} <b>${esc(p.nombre)}</b>${p.opcional ? ' (opcional)' : ''} · ${
               p.ok ? fmt(p.filas) + ' filas' : esc(p.error)
-            }</li>`
-        )
+            }</li>`        )
         .join('')}</ul>`
     : '';
   const pedirSupervisor =
@@ -3160,8 +3194,7 @@ function enlazar({ refrescar }) {
       const items = opcionesVisibles();
       if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length) {
         e.preventDefault();
-        marcar((indice + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length);
-        items[indice].scrollIntoView?.({ block: 'nearest' });
+        marcar((indice + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length);        items[indice].scrollIntoView?.({ block: 'nearest' });
       } else if (e.key === 'Enter' && indice >= 0 && items[indice]) {
         e.preventDefault();
         elegir(items[indice].dataset.sku);
@@ -3438,7 +3471,7 @@ function render() {
 
   return (
     encabezado(TITULO, SUBTITULO, `<button class="btn p" id="exportar">⬇ Exportar pestaña actual</button>`) +
-    `<div class="grid">${kpi('ERI por SKU', pc(inventario.eri), `Meta ${ajustes.eri} % · ${inventario.contados - inventario.diferencias.length} de ${inventario.contados} sin diferencia`, inventario.eri * 100 < ajustes.eri ? 'er' : 'ok')}${kpi('ERI valorizado', pc(inventario.eriValorizado), 'Diferencia absoluta ' + sol(inventario.valorDiferenciaAbsoluta))}${kpi('Faltantes / sobrantes', inventario.faltantes + ' / ' + inventario.sobrantes, 'Neto ' + sol(inventario.diferenciaNeta), 'wa')}${kpi('SKUs a reponer hoy', inventario.pedir.length, inventario.pronto + ' más pronto', 'er')}${kpi('Inversión inmediata', sol(inventario.pedir.reduce((t, s) => t + s.inversion, 0)), 'para cubrir lo urgente')}</div><div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de compras</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Diferencias de inventario (${inventario.diferencias.length})</button><button class="${pestana == 3 ? 'on' : ''}" data-pestana="3">Conteo cíclico semanal</button></div><div class="card">${contenido}</div>`
+    `<div class="grid">${kpi('ERI por SKU', pc(inventario.eri), `Tolerancia de ${ajustes.toleranciaEri} %`, inventario.eri * 100 >= ajustes.eri ? 'ok' : inventario.eri * 100 >= ajustes.eri - ajustes.toleranciaEri ? 'wa' : 'er')}${kpi('ERI valorizado', pc(inventario.eriValorizado), 'Diferencia absoluta ' + sol(inventario.valorDiferenciaAbsoluta))}${kpi('Faltantes / sobrantes', inventario.faltantes + ' / ' + inventario.sobrantes, 'Neto ' + sol(inventario.diferenciaNeta), 'wa')}${kpi('SKUs a reponer hoy', inventario.pedir.length, inventario.pronto + ' más pronto', 'er')}${kpi('Inversión inmediata', sol(inventario.pedir.reduce((t, s) => t + s.inversion, 0)), 'para cubrir lo urgente')}</div><div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de compras</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Diferencias de inventario (${inventario.diferencias.length})</button><button class="${pestana == 3 ? 'on' : ''}" data-pestana="3">Conteo cíclico semanal</button></div><div class="card">${contenido}</div>`
   );
 }
 
@@ -3960,8 +3993,7 @@ function agruparEnLineas(celdas) {
     const ordenadas = [...lista].sort((a, b) => a[eje] - b[eje]);
     const grupos = [];
     ordenadas.forEach(c => {
-      const ultimo = grupos[grupos.length - 1];
-      if (ultimo && c[eje] - ultimo.ref <= tolerancia) {
+      const ultimo = grupos[grupos.length - 1];      if (ultimo && c[eje] - ultimo.ref <= tolerancia) {
         ultimo.celdas.push(c);
         ultimo.ref = c[eje];
       } else {
@@ -4760,8 +4792,7 @@ function enlazar({ refrescar }) {
   alCambiarCada('[data-hueco]', (valor, el) => {
     const [i, despuesDe] = el.dataset.hueco.split(':').map(Number);
     const linea = asistente.lineas[i];
-    linea.saltos = linea.saltos || {};
-    if (valor === '') delete linea.saltos[despuesDe];
+    linea.saltos = linea.saltos || {};    if (valor === '') delete linea.saltos[despuesDe];
     else linea.saltos[despuesDe] = Math.max(1, Math.round(Number(valor)));
     refrescar();
   });
