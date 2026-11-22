@@ -132,7 +132,7 @@ const modelo = {
 
 // Lo que el usuario eligió en cada pantalla (pestaña activa, filtros, pedido elegido…).
 const ui = {
-  ubicaciones: { ahorroMes: '', pestana: 1, filtro: '', ocupacion: 0, zonaPlano: '', rackPlano: '', filtros: { prioridad: '', cliente: '', zona: '', abc: '' } },
+  ubicaciones: { pestana: 1, filtro: '', ocupacion: 0, zonaPlano: '', rackPlano: '', filtros: { prioridad: '', cliente: '', zona: '', abc: '' } },
   picking: { pedido: '', metodo: 'zonas', plan: 0, estado: 'pendientes', pagina: 1, buscar: '', filtros: { cliente: '', tienda: '' }, recorridoMaximizado: false, origen: 'real', manual: [], manualCantidad: 1 },
   inventario: { pestana: 1, filtros: { cuando: '', zona: '', cliente: '', abc: '' }, filtrosDif: { zona: '', cliente: '', abc: '' }, filtroDif: '', semanaConteo: 1, filtroConteo: '', filtroPlan: '' },
   escenarios: { demanda: 0, leadTime: 0, servicio: 0 },
@@ -2406,18 +2406,40 @@ function render() {
   const acumuladosVista = listaCausas.map(c => (acumVista += num(c.frecuencia)) / totalCausasVista);
   const fillRate = vistaMes ? vistaMes.cajasEntregadas / (vistaMes.cajasPedidas || 1) : otif.inFull;
 
-  const pareto = barras(
-    listaCausas.map((c, i) => [
-      esc(c.causa),
-      num(c.frecuencia),
-      esCausaQueAtacaUnModulo(c.causa) ? '#16a34a' : '#94a3b8',
-      `${fmt(num(c.frecuencia))} · ${pc(num(c.frecuencia) / totalCausasVista)} (acum. ${pc(acumuladosVista[i], 0)})`
-    ])
-  );
+  const TOP_PARETO = 5;
+  const restoCausas = listaCausas.slice(TOP_PARETO);
+  const filasPareto = listaCausas.slice(0, TOP_PARETO).map((c, i) => [
+    esc(c.causa),
+    num(c.frecuencia),
+    esCausaQueAtacaUnModulo(c.causa) ? '#16a34a' : '#94a3b8',
+    `${fmt(num(c.frecuencia))} · ${pc(num(c.frecuencia) / totalCausasVista)} (acum. ${pc(acumuladosVista[i], 0)})`
+  ]);
+  if (restoCausas.length) {
+    const sumaResto = sum(restoCausas, c => num(c.frecuencia));
+    filasPareto.push([`Otras (${restoCausas.length})`, sumaResto, '#94a3b8', `${fmt(sumaResto)} · ${pc(sumaResto / totalCausasVista)} (acum. 100 %)`]);
+  }
+  const pareto = barras(filasPareto);
+
+  // 1 y 4: resumen en una frase, con los datos que ya calcula la app
+  const totalPedidosVista = vistaMes ? vistaMes.total : sum(otif.meses, m => m.total);
+  const otifVista = vistaMes ? vistaMes.otif : otif.promedio;
+  const cumpleVista = otifVista >= ajustes.meta;
+  const causaPrincipal = listaCausas[0];
+  const periodoEtiqueta = vistaMes ? vistaMes.mes : 'todos los meses';
+  let resumen;
+  if (vistaMes && vistaMes.total === 0) {
+    resumen = `Sin pedidos entregados en ${vistaMes.mes}.`;
+  } else {
+    resumen = `${vistaMes ? 'En ' + vistaMes.mes : 'En el periodo completo'} el OTIF ${vistaMes ? 'fue' : 'promedio fue'} ${fmt(otifVista, 1)} %, ${fmt(Math.abs(otifVista - ajustes.meta), 1)} pp ${cumpleVista ? 'sobre' : 'bajo'} la meta de ${ajustes.meta} %.` +
+      (causaPrincipal ? ` La causa principal fue <b>${esc(causaPrincipal.causa)}</b> (${pc(num(causaPrincipal.frecuencia) / totalCausasVista)}).` : '');
+  }
+  const bloqueResumen = `<div class="card"><div class="row" style="justify-content:space-between;align-items:center"><div><p class="mu" style="margin:0">Periodo: <b>${esc(periodoEtiqueta)}</b> · Pedidos por fecha de entrega · ${fmt(totalPedidosVista)} pedidos${vistaMes && vistaMes.parcial ? ' · ' + etiqueta('t-b', 'Parcial') : ''}</p><p style="margin:6px 0 0;font-size:15px">${resumen}</p></div>${totalPedidosVista ? etiqueta(cumpleVista ? 't-g' : 't-r', cumpleVista ? 'Cumple la meta' : 'No cumple la meta') : ''}</div></div>`;
+  // 5: glosario de términos
+  const glosario = `<details class="card"><summary><b>¿Qué significa cada indicador?</b></summary><dl style="margin:10px 0 0"><dt><b>OTIF</b></dt><dd class="mu">Pedidos entregados a tiempo y completos, sobre el total de pedidos entregados en el periodo.</dd><dt><b>In Full (fill rate)</b></dt><dd class="mu">Cajas entregadas ÷ cajas pedidas.</dd><dt><b>Incidencia</b></dt><dd class="mu">Pedido con al menos un motivo de falla registrado en la hoja Pedidos.</dd><dt><b>Pareto</b></dt><dd class="mu">Causas ordenadas de mayor a menor. Las primeras explican la mayor parte de las incidencias.</dd><dt><b>Parcial</b></dt><dd class="mu">Mes con muy pocos pedidos: no entra en promedios ni en la regresión.</dd></dl></details>`;
 
   const detalleMensual = tabla(
     ['Mes', 'Estado', 'Pedidos OTIF', 'Pedidos totales', 'OTIF', 'Cajas entregadas', 'Incidencias'],
-    otif.meses.map(m => [
+    (vistaMes ? [vistaMes] : otif.meses).map(m => [
       esc(m.mes),
       m.parcial
         ? etiqueta('t-b', 'Parcial')
@@ -2434,12 +2456,14 @@ function render() {
 
   return (
     encabezado(TITULO, SUBTITULO) +
+    bloqueResumen +
     `<div class="row no-pdf" style="justify-content:flex-end"><select data-mes-diag><option value="todos">Todos los meses</option>${otif.meses.map(m => `<option value="${esc(m.clave)}" ${mesSel === m.clave ? 'selected' : ''}>${esc(m.mes)}</option>`).join('')}</select><button class="btn p" id="pdf-diagnostico">⬇ Guardar PDF</button></div>` +
     `<div class="grid">${vistaMes ? kpi('OTIF del mes', fmt(vistaMes.otif, 1) + ' %', `${fmt(vistaMes.otif - ajustes.meta, 1)} pp frente a la meta · ${fmt(vistaMes.cumplidos)} de ${fmt(vistaMes.total)} pedidos`, vistaMes.otif < ajustes.meta ? 'er' : 'ok') : kpi('OTIF promedio', fmt(otif.promedio, 1) + ' %', `${fmt(otif.promedio - ajustes.meta, 1)} pp frente a la meta`, 'er')}${vistaMes ? '' : kpi('Meses bajo la meta', otif.bajoMeta + ' de ' + otif.completos.length, '', 'er')}${vistaMes ? '' : kpi('Relación incidencias ↔ OTIF', 'R² = ' + fmt(r2 * 100, 0) + ' %', `Pendiente ${fmt(pendiente, 3)} pp por incidencia`)}${kpi('In Full (Fill Rate)', fmt(fillRate * 100, 2) + ' %', 'Cajas entregadas ÷ pedidas', 'ok')}</div>
-<div class="card"><h2>Evolución mensual del OTIF</h2>${graficoLineas(otif.meses, ajustes.meta)}</div>
-<div class="grid g2"><div class="card"><h2>¿Las incidencias explican el OTIF?</h2>${graficoDispersion(otif.puntos, regresion, ajustes.meta)}<p class="mu">Recta: OTIF = ${fmt(intercepto, 2)} ${fmt(pendiente, 4)} × incidencias. Para alcanzar ${ajustes.meta} % harían falta unas <b>${fmt(incidenciasParaLaMeta)}</b> incidencias/mes (hoy ${fmt(incidenciasPromedio)}).</p></div>
-<div class="card"><h2>Causas de las incidencias (Pareto)</h2>${pareto}<p class="mu">Verde: causas que atacan los módulos.</p></div></div>
-<div class="card"><h2>Detalle mensual</h2>${detalleMensual}</div>`
+${vistaMes ? '' : `<div class="card"><h2>Evolución mensual del OTIF</h2>${graficoLineas(otif.meses, ajustes.meta)}</div>`}
+<div class="grid g2">${vistaMes ? '' : `<div class="card"><h2>¿Las incidencias explican el OTIF?</h2>${graficoDispersion(otif.puntos, regresion, ajustes.meta)}<p class="mu">Recta: OTIF = ${fmt(intercepto, 2)} ${fmt(pendiente, 4)} × incidencias. Para alcanzar ${ajustes.meta} % harían falta unas <b>${fmt(incidenciasParaLaMeta)}</b> incidencias/mes (hoy ${fmt(incidenciasPromedio)}).</p></div>`}
+<div class="card"><h2>Causas de las incidencias (Pareto)</h2>${pareto}<p class="mu">Verde: causas que la app ayuda a atacar con sus módulos. Gris: el resto.</p></div></div>
+<div class="card"><h2>Detalle mensual</h2>${detalleMensual}</div>` +
+    glosario
   );
 }
 
@@ -2666,18 +2690,8 @@ __m["modulos/ubicaciones/vista.js"] = (function () {
 const __e = {};
 // Ubicaciones (slotting): plan de traslados y plano de la planta con la ocupación de las ubicaciones de picking.
 
-const { modelo, ui, datos, ajustes } = __m["nucleo/estado.js"];
+const { modelo, ui } = __m["nucleo/estado.js"];
 const { planta } = __m["nucleo/planta.js"];
-const { construirCatalogo } = __m["nucleo/catalogo.js"];
-const { calcularUbicaciones } = __m["modulos/ubicaciones/calculo.js"];
-
-// Ahorro si el corte fuera el último día del mes elegido (misma ventana de demanda hacia atrás)
-function ahorroParaMes(clave) {
-  const [anio, mes] = clave.split('-').map(Number);
-  const finMes = new Date(Date.UTC(anio, mes, 0)).toISOString().slice(0, 10).replace(/-/g, '');
-  const aj = { ...ajustes, corteStock: Number(finMes) };
-  return calcularUbicaciones(construirCatalogo(datos, aj), aj, planta);
-}
 const { fmt, esc } = __m["nucleo/formato.js"];
 const { kpi, tabla, encabezado, etiqueta, etiquetaZona } = __m["nucleo/html.js"];
 const { dibujarPlano } = __m["nucleo/graficos.js"];
@@ -2790,17 +2804,14 @@ function render() {
   const vacio = pantallaVacia(TITULO, SUBTITULO, ['inventario', 'layout', 'pedidos']);
   if (vacio) return vacio;
 
-  const { catalogo, ubicaciones: ubicacionesModelo } = modelo;
+  const { catalogo, ubicaciones } = modelo;
   const { pestana, filtro, ocupacion } = ui.ubicaciones;
-  const ubicaciones = ui.ubicaciones.ahorroMes ? { ...ubicacionesModelo, ...ahorroParaMes(ui.ubicaciones.ahorroMes) } : ubicacionesModelo;
-  const meses = (modelo.otif?.meses || []).map(m => m.clave);
-  const selectorAhorro = `<label class="mu">Mes del corte para el ahorro <select data-ahorro-mes><option value="">Automático (último pedido)</option>${meses.map(c => `<option value="${esc(c)}" ${ui.ubicaciones.ahorroMes === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>`;
   const total = catalogo.skus.length;
 
   return (
     encabezado(TITULO, SUBTITULO, `<button class="btn" id="exportar">⬇ Exportar plan</button>`) +
     (pestana == 1 ? avisosDelPlan(ubicaciones.avisos) : '') +
-    (pestana == 1 ? `<div class="row">${selectorAhorro}</div><div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', (ubicaciones.ahorro == null ? 'Sin datos suficientes' : fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes')), ubicaciones.ahorro == null ? 'sin pedidos en el corte seleccionado' : 'metros de recorrido por periodo si se aplican todos')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
+    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', (ubicaciones.ahorro == null ? 'Sin datos suficientes' : fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes')), ubicaciones.ahorro == null ? 'sin pedidos en el corte seleccionado' : 'metros de recorrido por periodo si se aplican todos')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
 `<div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de traslados</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Plano de la planta</button></div>` +
     (pestana == 1 ? planDeTraslados(ubicaciones.traslados, total, filtro, ui.ubicaciones.filtros) : planoDeRacks(ubicaciones, ocupacion))
   );
@@ -2810,12 +2821,6 @@ function enlazar({ refrescar }) {
   alClick('[data-pestana]', boton => {
     ui.ubicaciones.pestana = +boton.dataset.pestana;
     refrescar();
-  });
-  document.querySelectorAll('[data-ahorro-mes]').forEach(selector => {
-    selector.onchange = () => {
-      ui.ubicaciones.ahorroMes = selector.value;
-      refrescar();
-    };
   });
   alClick('[data-ocupacion]', boton => {
     ui.ubicaciones.ocupacion = +boton.dataset.ocupacion;
