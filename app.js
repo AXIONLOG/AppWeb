@@ -447,7 +447,6 @@ function construirPlanta(layout) {
     )
   );
   layout.muros.forEach(m => marcar(m.x0, m.y0, m.x1, m.y1, 2, 0)); // cualquier muro que toque una celda la bloquea
-
   const celdaDe = (x, y) => {
     const cx = Math.min(columnas - 1, Math.max(0, Math.floor(x / celda)));
     const cy = Math.min(filas - 1, Math.max(0, Math.floor(y / celda)));
@@ -497,7 +496,8 @@ function construirPlanta(layout) {
       for (let paso = 1; paso <= COLOCACION_EN_FRENTE; paso++) {
         cx += dx;
         cy += dy;
-        if (cx < 0 || cy < 0 || cx >= columnas || cy >= filas) return;        const valor = mapa[cy * columnas + cx];
+        if (cx < 0 || cy < 0 || cx >= columnas || cy >= filas) return;
+        const valor = mapa[cy * columnas + cx];
         if (valor === 2) return; // un muro: ese lado no sirve
         if (valor === 0) {
           if (paso < pasosMejor) {
@@ -765,6 +765,7 @@ function construirCatalogo(datos, ajustes) {
 }
 
 Object.defineProperty(__e, 'construirCatalogo', { get: () => construirCatalogo, enumerable: true });
+Object.defineProperty(__e, 'corteVigente', { get: () => corteVigente, enumerable: true });
 return __e;
 })();
 
@@ -872,11 +873,89 @@ __m["modulos/diagnostico/calculo.js"] = (function () {
 const __e = {};
 // Diagnóstico OTIF: evolución mensual, relación entre incidencias y OTIF, y causas (Pareto).
 
-const { num, sum, etiquetaMes, normalizar } = __m["nucleo/formato.js"];
+const { num, sum, etiquetaMes, normalizar, aMarcaDeTiempo } = __m["nucleo/formato.js"];
+
+// Si Pedidos trae «Fecha esperada» y «Cantidad entregada», el OTIF se calcula desde los pedidos.
+// Reglas: un pedido cuenta en el mes de su fecha de entrega; es OTIF si esa fecha es ≤ la fecha esperada
+// y todas sus líneas tienen cantidad entregada ≥ cantidad pedida. Los pedidos sin fecha de entrega (o con
+// una fecha futura) son pendientes y no entran.
+// Motivos (columna Motivo, a nivel de línea): un pedido es incidencia si tiene al menos una línea con
+// motivo, y cada motivo se cuenta una vez por pedido. Si Pedidos no trae la columna Motivo, las
+// incidencias se leen de la pestaña OTIF.
+// Devuelve { filas, causas } o null si Pedidos no trae los datos de OTIF.
+function otifDesdePedidos(datos, ajustes) {
+  const pedidos = datos.pedidos;
+  const hayDatos = pedidos.length > 0 && pedidos.some(p => String(p.fechaesperada ?? '').trim() !== '');
+  if (!hayDatos) return null;
+  const usaMotivos = pedidos[0].motivo !== undefined;
+
+  // Hoy (UTC, a medianoche): una fecha de entrega posterior a hoy no puede contar como entrega real
+  const hoy = new Date();
+  const hoyMs = Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate());
+
+  const porPedido = new Map();
+  pedidos.forEach(p => {
+    if (!porPedido.has(p.pedidoid)) porPedido.set(p.pedidoid, []);
+    porPedido.get(p.pedidoid).push(p);  });
+
+  const incidenciasPorMesOtif = new Map(
+    datos.otif.map(f => [etiquetaMes(f.mes), f.incidencias === undefined || f.incidencias === '' ? null : num(f.incidencias)])
+  );
+
+  const mesesPorClave = new Map();
+  const conteoCausas = new Map();
+  porPedido.forEach(lineas => {
+    const esperada = aMarcaDeTiempo(lineas[0].fechaesperada);
+    if (Number.isNaN(esperada)) return;
+    const fechasEntrega = lineas.map(l => aMarcaDeTiempo(l.fechaentrega));
+    const entrega = fechasEntrega.some(Number.isNaN) ? NaN : Math.max(...fechasEntrega);
+    // Sin fecha de entrega (o con una fecha futura) es un pedido pendiente: no entra al OTIF
+    if (Number.isNaN(entrega) || entrega > hoyMs) return;
+    // El pedido cuenta en el mes de su fecha de entrega
+    const d = new Date(entrega);
+    const clave = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    if (!mesesPorClave.has(clave)) {
+      mesesPorClave.set(clave, { mes: clave, pedidostotal: 0, pedidosotif: 0, cajaspedidas: 0, cajasentregadas: 0, incidenciasCalc: 0 });
+    }
+    const m = mesesPorClave.get(clave);
+    m.pedidostotal += 1;
+    lineas.forEach(l => {
+      m.cajaspedidas += num(l.cantidad);
+      m.cajasentregadas += num(l.cantidadentregada);
+    });
+    const aTiempo = entrega <= esperada;
+    const completo = lineas.every(l => num(l.cantidadentregada) >= num(l.cantidad));
+    if (aTiempo && completo) m.pedidosotif += 1;
+
+    // Motivos del pedido (distintos, una vez por pedido)
+    const motivos = [...new Set(lineas.map(l => String(l.motivo ?? '').trim()).filter(Boolean))];
+    if (motivos.length) m.incidenciasCalc += 1;
+    motivos.forEach(c => conteoCausas.set(c, (conteoCausas.get(c) || 0) + 1));
+  });
+
+  const filas = [...mesesPorClave.values()]
+    .sort((a, b) => (a.mes < b.mes ? -1 : 1))
+    .map(m => {
+      const etiqueta = etiquetaMes(m.mes);
+      const incidencias = usaMotivos ? m.incidenciasCalc : incidenciasPorMesOtif.has(etiqueta) ? incidenciasPorMesOtif.get(etiqueta) : null;
+      return { mes: m.mes, pedidostotal: m.pedidostotal, pedidosotif: m.pedidosotif, cajaspedidas: m.cajaspedidas, cajasentregadas: m.cajasentregadas, incidencias };
+    });
+
+  // Pareto de causas: lo cuenta el sistema a partir de Motivo. La etapa no viene en Pedidos.
+  const causas = usaMotivos
+    ? [...conteoCausas.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([causa, frecuencia]) => ({ causa, etapa: 'Sin etapa', frecuencia: String(frecuencia) }))
+    : [];
+
+  return { filas, causas };
+}
 
 function calcularOtif(datos, ajustes) {
   // --- Un registro por mes
-  const meses = datos.otif.map(fila => {
+  const desdePedidos = otifDesdePedidos(datos, ajustes);
+  const filasOtif = desdePedidos ? desdePedidos.filas : datos.otif;
+  const meses = filasOtif.map(fila => {
     const total = num(fila.pedidostotal);
     const cumplidos = num(fila.pedidosotif);
     return {
@@ -886,7 +965,7 @@ function calcularOtif(datos, ajustes) {
       cumplidos, // pedidos a tiempo y completos
       cajasEntregadas: num(fila.cajasentregadas),
       cajasPedidas: num(fila.cajaspedidas),
-      incidencias: fila.incidencias === undefined || fila.incidencias === '' ? null : num(fila.incidencias),
+      incidencias: fila.incidencias == null || fila.incidencias === '' ? null : num(fila.incidencias),
       parcial: total < 100 // un mes con muy pocos pedidos no entra en promedios ni en la regresión
     };
   });
@@ -915,7 +994,7 @@ function calcularOtif(datos, ajustes) {
   }
 
   // --- Causas de las incidencias
-  const lista = datos.causas;
+  const lista = desdePedidos && desdePedidos.causas.length ? desdePedidos.causas : datos.causas;
   const totalCausas = sum(lista, c => num(c.frecuencia)) || 1;
   const porEtapa = {};
   lista.forEach(c => (porEtapa[c.etapa] = (porEtapa[c.etapa] || 0) + num(c.frecuencia)));
@@ -996,6 +1075,7 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
     for (const rack in ocupado) ocupado[rack] /= capacidad[rack];
     return ocupado;
   };
+
   // --- Rack ideal de cada SKU (solo racks alcanzables de su zona, los más cercanos al muelle primero)
   const usado = {};
   racks.forEach(r => (usado[r.id] = 0));
@@ -1265,8 +1345,7 @@ function calcularRuta(pedido, metodo, ubicaciones, { porSku, planta, ajustes }) 
 
   let paradas;
   if (metodo === 'lista') {
-    // Se visita en el orden de la lista impresa (por código de SKU)
-    paradas = [];
+    // Se visita en el orden de la lista impresa (por código de SKU)    paradas = [];
     [...lineas]
       .sort((a, b) => a.sku.localeCompare(b.sku))
       .forEach(l => {
@@ -1437,7 +1516,7 @@ function recalcular() {
   const hay = {
     inventario: datos.inventario.length > 0,
     pedidos: datos.pedidos.length > 0,
-    otif: datos.otif.length > 0,
+    otif: datos.otif.length > 0 || datos.pedidos.some(p => String(p.fechaesperada ?? '').trim() !== ''),
     causas: datos.causas.length > 0
   };
 
@@ -1495,7 +1574,8 @@ function parseCsv(texto) {
         } else entreComillas = false;
       } else celda += c;
     } else if (c === '"') entreComillas = true;
-    else if (c === separador) {      fila.push(celda);
+    else if (c === separador) {
+      fila.push(celda);
       celda = '';
     } else if (c === '\n' || c === '\r') {
       if (c === '\r' && texto[i + 1] === '\n') i++;
@@ -1630,6 +1710,8 @@ const PESTANAS = [
   {
     nombre: 'Pedidos',
     tabla: 'pedidos',
+    // Nombres alternativos que usa el Sheet (la app los toma como los nombres de arriba)
+    alias: { cantidad: 'cantidadp', cantidadentregada: 'cantidade', fechaentrega: 'fechadeentrega' },
     obligatorias: [
       ['pedidoid', 'Pedido_ID'],
       ['fechapedido', 'Fecha pedido'],
@@ -1640,6 +1722,8 @@ const PESTANAS = [
   {
     nombre: 'OTIF',
     tabla: 'otif',
+    // Opcional: el OTIF se calcula desde Pedidos cuando trae Fecha esperada y Cantidad entregada
+    opcional: true,
     obligatorias: [
       ['mes', 'Mes'],
       ['pedidosotif', 'Pedidos_OTIF'],
@@ -1649,6 +1733,7 @@ const PESTANAS = [
   {
     nombre: 'Causas',
     tabla: 'causas',
+    opcional: true,
     obligatorias: [
       ['causa', 'Causa'],
       ['etapa', 'Etapa'],
@@ -1709,8 +1794,7 @@ const PESTANAS = [
     opcional: true,
     obligatorias: [
       ['parametro', 'Parametro'],
-      ['valor', 'Valor']
-    ]
+      ['valor', 'Valor']    ]
   }
 ];
 
@@ -1730,6 +1814,13 @@ function interpretarPestana(definicion, texto) {
     return { error: 'no se pudo leer (¿el Sheet no está compartido o no existe la pestaña?)' };
   }
   const { cabecera, filas } = leerTabla(contenido);
+  // Si la columna tiene el nombre alternativo, se copia a su nombre estándar
+  Object.entries(definicion.alias || {}).forEach(([clave, alterno]) => {
+    if (!cabecera.includes(clave) && cabecera.includes(alterno)) {
+      cabecera.push(clave);
+      filas.forEach(f => (f[clave] = f[alterno]));
+    }
+  });
   const faltan = definicion.obligatorias
     .filter(([clave]) => !cabecera.includes(clave))
     .map(([, etiqueta]) => etiqueta);
@@ -1994,7 +2085,8 @@ const COLOR_TIPO = {
   almacenaje: '#f0aa3a',
   staging: '#59ae47',
   pnc: '#dc4f48',
-  otro: '#9ba0a6'};
+  otro: '#9ba0a6'
+};
 const RGB_ZONA = { SECO: '245,158,11', REFRIGERADO: '56,189,248', CONGELADO: '99,102,241' };
 
 // Nombres de las columnas y filas (SA, SB, CA…): se sacan de los códigos de las ubicaciones (SB-17 → SB)
@@ -2151,8 +2243,7 @@ const __e = {};
 
 const { modelo, ajustes, datos } = __m["nucleo/estado.js"];
 const { fmt, pc, sol, sum } = __m["nucleo/formato.js"];
-const { kpi, barras, encabezado, etiqueta } = __m["nucleo/html.js"];
-const { graficoLineas } = __m["nucleo/graficos.js"];
+const { kpi, barras, encabezado, etiqueta } = __m["nucleo/html.js"];const { graficoLineas } = __m["nucleo/graficos.js"];
 const { pantallaVacia } = __m["nucleo/requisitos.js"];
 
 const TITULO = 'Panel de control';
@@ -2241,9 +2332,6 @@ function render() {
       `${fmt(num(c.frecuencia))} · ${pc(num(c.frecuencia) / causas.total)} (acum. ${pc(causas.acumulados[i], 0)})`
     ])
   );
-  const etapas = Object.entries(causas.porEtapa)
-    .map(([etapa, frecuencia]) => etiqueta('t-b', esc(etapa) + ' ' + pc(frecuencia / causas.total)))
-    .join(' ');
 
   const detalleMensual = tabla(
     ['Mes', 'Estado', 'Pedidos OTIF', 'Pedidos totales', 'OTIF', 'Cajas entregadas', 'Incidencias'],
@@ -2265,10 +2353,10 @@ function render() {
   return (
     encabezado(TITULO, SUBTITULO) +
     `<div class="row no-pdf" style="justify-content:flex-end"><button class="btn p" id="pdf-diagnostico">⬇ Guardar PDF</button></div>` +
-    `<div class="grid">${kpi('OTIF promedio', fmt(otif.promedio, 1) + ' %', `${fmt(otif.promedio - ajustes.meta, 1)} pp frente a la meta`, 'er')}${kpi('Meses bajo la meta', otif.bajoMeta + ' de ' + otif.completos.length, '', 'er')}${kpi('Incidencias en picking', fmt(((causas.porEtapa['Picking'] || 0) / causas.total) * 100, 1) + ' %', 'Etapa donde más se puede mejorar')}${kpi('Relación incidencias ↔ OTIF', 'R² = ' + fmt(r2 * 100, 0) + ' %', `Pendiente ${fmt(pendiente, 3)} pp por incidencia`)}${kpi('In Full (Fill Rate)', fmt(otif.inFull * 100, 2) + ' %', 'Cajas entregadas ÷ pedidas', 'ok')}</div>
+    `<div class="grid">${kpi('OTIF promedio', fmt(otif.promedio, 1) + ' %', `${fmt(otif.promedio - ajustes.meta, 1)} pp frente a la meta`, 'er')}${kpi('Meses bajo la meta', otif.bajoMeta + ' de ' + otif.completos.length, '', 'er')}${kpi('Relación incidencias ↔ OTIF', 'R² = ' + fmt(r2 * 100, 0) + ' %', `Pendiente ${fmt(pendiente, 3)} pp por incidencia`)}${kpi('In Full (Fill Rate)', fmt(otif.inFull * 100, 2) + ' %', 'Cajas entregadas ÷ pedidas', 'ok')}</div>
 <div class="card"><h2>Evolución mensual del OTIF</h2>${graficoLineas(otif.meses, ajustes.meta)}</div>
 <div class="grid g2"><div class="card"><h2>¿Las incidencias explican el OTIF?</h2>${graficoDispersion(otif.puntos, regresion, ajustes.meta)}<p class="mu">Recta: OTIF = ${fmt(intercepto, 2)} ${fmt(pendiente, 4)} × incidencias. Para alcanzar ${ajustes.meta} % harían falta unas <b>${fmt(incidenciasParaLaMeta)}</b> incidencias/mes (hoy ${fmt(incidenciasPromedio)}).</p></div>
-<div class="card"><h2>Causas de las incidencias (Pareto)</h2>${pareto}<p class="mu">Verde: causas que atacan los módulos. Por etapa: ${etapas}</p></div></div>
+<div class="card"><h2>Causas de las incidencias (Pareto)</h2>${pareto}<p class="mu">Verde: causas que atacan los módulos.</p></div></div>
 <div class="card"><h2>Detalle mensual</h2>${detalleMensual}</div>`
   );
 }
@@ -2493,7 +2581,8 @@ const __e = {};
 const { modelo, ui } = __m["nucleo/estado.js"];
 const { planta } = __m["nucleo/planta.js"];
 const { fmt, esc } = __m["nucleo/formato.js"];
-const { kpi, tabla, encabezado, etiqueta, etiquetaZona } = __m["nucleo/html.js"];const { dibujarPlano } = __m["nucleo/graficos.js"];
+const { kpi, tabla, encabezado, etiqueta, etiquetaZona } = __m["nucleo/html.js"];
+const { dibujarPlano } = __m["nucleo/graficos.js"];
 const { descargarCsv } = __m["nucleo/csv.js"];
 const { $, alClick } = __m["nucleo/dom.js"];
 const { pantallaVacia } = __m["nucleo/requisitos.js"];
@@ -2603,8 +2692,7 @@ function render() {
   const vacio = pantallaVacia(TITULO, SUBTITULO, ['inventario', 'layout', 'pedidos']);
   if (vacio) return vacio;
 
-  const { catalogo, ubicaciones } = modelo;
-  const { pestana, filtro, ocupacion } = ui.ubicaciones;
+  const { catalogo, ubicaciones } = modelo;  const { pestana, filtro, ocupacion } = ui.ubicaciones;
   const total = catalogo.skus.length;
 
   return (
@@ -2992,7 +3080,8 @@ function render() {
   const elegir =
     `<div class="card"><h2>Elija el pedido</h2>${origen}` +
     (manual
-      ? cuerpoManual()      : `<select id="pedido" style="width:100%">${pedidos.map(p => `<option value="${esc(p.id)}" ${p.id == pedido.id ? 'selected' : ''}>${esc(p.id)} · ${esc(p.tienda)} · ${p.lineas.length} líneas</option>`).join('')}</select>`) +
+      ? cuerpoManual()
+      : `<select id="pedido" style="width:100%">${pedidos.map(p => `<option value="${esc(p.id)}" ${p.id == pedido.id ? 'selected' : ''}>${esc(p.id)} · ${esc(p.tienda)} · ${p.lineas.length} líneas</option>`).join('')}</select>`) +
     (manual ? '' : `<button class="btn p" id="completar" style="margin-top:10px">Marcar como completado</button>`) +
     `</div>`;
   const plan = `<div class="card"><h2>Plan de distribución</h2><div class="tabs"><button class="${conPlan ? '' : 'on'}" data-plan="0">Ubicaciones actuales</button><button class="${conPlan ? 'on' : ''}" data-plan="1">Con plan aplicado</button></div></div>`;
@@ -3052,8 +3141,7 @@ function vistaCompletados(conteos) {
           ['Pedido', 'Fecha pedido', 'Cliente', 'Tienda', 'Fecha entrega', ''],
           filas.map(p => [
             '<b>' + esc(p.id) + '</b>',
-            fechaDe(p.marca),
-            esc(p.cliente),
+            fechaDe(p.marca),            esc(p.cliente),
             esc(p.tienda),
             fechaDe(p.marcaEntrega),
             `<button class="btn" data-devolver="${esc(p.id)}">Devolver a Pendientes</button>`
@@ -3491,7 +3579,8 @@ function conteoCiclico(inventario) {
   return (
     `<div class="barra-filtros"><input id="filtro-conteo" class="buscar" placeholder="Buscar por SKU o producto…" value="${esc(ui.inventario.filtroConteo || '')}"></div>` +
     `<p class="mu">${resumen}</p>` +
-    (texto ? '' : `<p class="mu">${proximo}</p>`) +    tabla(
+    (texto ? '' : `<p class="mu">${proximo}</p>`) +
+    tabla(
       ['Orden', 'SKU', 'Producto', 'Zona', 'Rack', 'ABC', 'Stock sistema', 'Conteo físico', 'Diferencia', 'Valor dif.', 'Motivo'],
       filas.map(s => {
         // Sin conteo físico no hay diferencia: se deja en blanco (—) en lugar de suponer un valor
@@ -3501,8 +3590,7 @@ function conteoCiclico(inventario) {
           s.orden,
           esc(s.sku),
           esc(s.descripcion),
-          etiquetaZona(s.zona),
-          esc(s.rack),
+          etiquetaZona(s.zona),          esc(s.rack),
           s.abc,
           fmt(s.stockSistema),
           tieneConteo ? fmt(s.stockFisico) : '—',
@@ -3951,8 +4039,7 @@ function componentes(mascara, ancho, alto, radio, bloqueo) {
   const visto = new Uint8Array(unida.length);
   const pila = new Int32Array(unida.length);
   const lista = [];
-  for (let inicio = 0; inicio < unida.length; inicio++) {
-    if (!unida[inicio] || visto[inicio]) continue;
+  for (let inicio = 0; inicio < unida.length; inicio++) {    if (!unida[inicio] || visto[inicio]) continue;
     let tope = 0;
     pila[tope++] = inicio;
     visto[inicio] = 1;
@@ -3990,7 +4077,8 @@ function detectarCeldas(imagen, paleta) {
   TIPOS.forEach(tipo => {
     const mascara = mascaraDeColor(imagen, paleta[tipo], tipo === 'otro' ? TOLERANCIA_GRIS : TOLERANCIA_COLOR);
     componentes(mascara, ancho, alto, RADIO_CIERRE, bloqueo).forEach(c => {
-      encontradas.push({ tipo, x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1, area: c.area });    });
+      encontradas.push({ tipo, x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1, area: c.area });
+    });
   });
 
   // Se descartan manchas pequeñas (bordes, textos) y formas que no parecen una ubicación
@@ -4400,8 +4488,7 @@ function revisar(layout, lineas) {
   const nombres = lineas.map(l => l.nombre);
   if (new Set(nombres).size !== nombres.length) avisos.push('Hay dos columnas o filas con el mismo nombre.');
   if (!layout.metrosPorPixel) avisos.push('Falta la escala del plano.');
-  return avisos;
-}
+  return avisos;}
 
 // Las tres tablas que se pegan en el Google Sheet (la primera fila son los títulos)
 function tablasParaSheet(layout) {
@@ -4489,7 +4576,8 @@ const asistente = {
   paso: 1,
   archivo: '',
   imagen: null, // { data, ancho, alto } con los píxeles
-  fuente: null, // lienzo con la imagen, para dibujar encima  paleta: { ...PALETA_INICIAL },
+  fuente: null, // lienzo con la imagen, para dibujar encima
+  paleta: { ...PALETA_INICIAL },
   tomando: null, // color que se está tomando de la imagen con un clic
   lectura: null, // resultado de leer el plano
   lineas: [], // columnas y filas, con lo que el cliente corrige
@@ -4849,8 +4937,7 @@ function enlazar({ refrescar }) {
     linea.saltos = linea.saltos || {};
     if (valor === '') delete linea.saltos[despuesDe];
     else linea.saltos[despuesDe] = Math.max(1, Math.round(Number(valor)));
-    refrescar();
-  });
+    refrescar();  });
   $$('tr[data-linea]').forEach(fila => {
     fila.onmouseenter = () => {
       asistente.resaltada = +fila.dataset.linea;
@@ -4989,6 +5076,7 @@ const PANTALLAS_SOLO_SUPERVISOR = ['layout'];
 // Cada cuántos minutos se vuelve a leer el Sheet, para que ambos vean los cambios del otro
 const MINUTOS_ACTUALIZACION = 5;
 const CLAVE_SESION = 'axionlog-sesion';
+
 function usuarioActual() {
   try {
     const usuario = sessionStorage.getItem(CLAVE_SESION);
