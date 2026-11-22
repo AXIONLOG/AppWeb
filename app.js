@@ -31,7 +31,7 @@ const AJUSTES_POR_DEFECTO = {
   rEri: 50, // reducción de diferencias en conteos con el módulo 3 (%)
   rRop: 50, // reducción de falta de productos con el módulo 3 (%)
   fotoStock: 0, // día de la foto del Stock_Sistema, formato AAAAMMDD (0 = no restar pedidos)
-  corteStock: 0, // corte de datos, AAAAMMDD (0 = último día del mes anterior)
+  corteStock: 0, // corte de datos, AAAAMMDD (0 = fecha del pedido más reciente)
   frecuenciaConteo: 7, // días entre un conteo físico de stock y el siguiente
   reubicacion: 30 // días entre reubicaciones: 30 = mensual, 15 = quincenal
 };
@@ -67,7 +67,7 @@ const GRUPOS_AJUSTES = [
       ['eri', 'Meta de exactitud ERI (%)'],
       ['toleranciaEri', 'Tolerancia de ERI (puntos %)'],
       ['fotoStock', 'Día de la foto del stock (AAAAMMDD)'],
-      ['corteStock', 'Corte de datos (AAAAMMDD, 0 = último día del mes anterior)'],
+      ['corteStock', 'Corte de datos (AAAAMMDD, 0 = fecha del pedido más reciente)'],
       ['frecuenciaConteo', 'Frecuencia del conteo físico (días)']
     ]
   ],
@@ -654,13 +654,20 @@ const __e = {};
 const { num, sum, aMarcaDeTiempo, normalizarZona } = __m["nucleo/formato.js"];
 const { planta } = __m["nucleo/planta.js"];
 
-// Corte de datos: último día del mes anterior, o el corte fijado en Ajustes.
-// Date.UTC(año, mes, 0) respeta febrero (28 o 29) y los meses de 30 y 31 días.
-function corteVigente(ajustes) {
+// Corte de datos: si Ajustes trae una fecha, se usa esa. En automático (0), la fecha de pedido
+// más reciente de la hoja, para que la ventana de demanda siempre tenga pedidos.
+// Sin pedidos, se usa el último día del mes anterior.
+function corteVigente(ajustes, pedidos = []) {
   if (ajustes.corteStock) {
     const s = String(ajustes.corteStock);
     return Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
   }
+  let ultima = NaN;
+  pedidos.forEach(p => {
+    const m = aMarcaDeTiempo(p.fecha);
+    if (!Number.isNaN(m) && (Number.isNaN(ultima) || m > ultima)) ultima = m;
+  });
+  if (!Number.isNaN(ultima)) return ultima;
   const hoy = new Date();
   return Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), 0);
 }
@@ -672,7 +679,7 @@ function construirCatalogo(datos, ajustes) {
   // --- Demanda y frecuencia dentro de la ventana de cálculo (los últimos N días de pedidos)
   const marcas = pedidos.map(p => aMarcaDeTiempo(p.fecha));
   // Pedidos posteriores al corte son programados: no cuentan como demanda ni como completados
-  const corteMs = corteVigente(ajustes);
+  const corteMs = corteVigente(ajustes, pedidos);
   const desde = corteMs - ajustes.vent * 864e5;
 
   // Pedidos posteriores a la foto del stock (día AAAAMMDD) y hasta el corte, ambos incluidos.
@@ -764,7 +771,15 @@ function construirCatalogo(datos, ajustes) {
     nPedidos: listaPedidos.length,
     nLineas: pedidos.length,
     corte: corteMs,
-    ventana: { desde, corte: corteMs, lineas: lineasEnVentana, skus: Object.keys(frecuencia).length }
+    ventana: {
+      desde,
+      corte: corteMs,
+      lineas: lineasEnVentana,
+      skus: Object.keys(frecuencia).length,
+      lineasCargadas: pedidos.length,
+      fechaMin: marcas.reduce((a, m) => (Number.isNaN(m) ? a : Math.min(a, m)), Infinity),
+      fechaMax: marcas.reduce((a, m) => (Number.isNaN(m) ? a : Math.max(a, m)), -Infinity)
+    }
   };
 }
 
@@ -1255,7 +1270,11 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
       desde: new Date(catalogo.ventana.desde).toISOString().slice(0, 10),
       corte: new Date(catalogo.ventana.corte).toISOString().slice(0, 10),
       lineas: catalogo.ventana.lineas,
-      skus: catalogo.ventana.skus
+      skus: catalogo.ventana.skus,
+      aviso: catalogo.ventana.lineas === 0 ? ' · ⚠ sin pedidos en la ventana: el ahorro no se puede calcular' : '',
+      lineasCargadas: catalogo.ventana.lineasCargadas,
+      fechaMin: Number.isFinite(catalogo.ventana.fechaMin) ? new Date(catalogo.ventana.fechaMin).toISOString().slice(0, 10) : 'sin fecha',
+      fechaMax: Number.isFinite(catalogo.ventana.fechaMax) ? new Date(catalogo.ventana.fechaMax).toISOString().slice(0, 10) : 'sin fecha'
     },
     riesgoTermico: traslados.filter(t => t.riesgoTermico).length,
     sinUbicacion: sinRack.length + rackVacio.length,
@@ -2715,7 +2734,7 @@ function render() {
   return (
     encabezado(TITULO, SUBTITULO, `<button class="btn" id="exportar">⬇ Exportar plan</button>`) +
     (pestana == 1 ? avisosDelPlan(ubicaciones.avisos) : '') +
-    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes'), 'metros de recorrido por periodo si se aplican todos · ventana de demanda ' + ubicaciones.ventana.desde + ' a ' + ubicaciones.ventana.corte + ': ' + ubicaciones.ventana.lineas + ' líneas de pedido de ' + ubicaciones.ventana.skus + ' SKU')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
+    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes'), 'metros de recorrido por periodo si se aplican todos · ventana de demanda ' + ubicaciones.ventana.desde + ' a ' + ubicaciones.ventana.corte + ': ' + ubicaciones.ventana.lineas + ' líneas de pedido de ' + ubicaciones.ventana.skus + ' SKU' + ubicaciones.ventana.aviso + ' · líneas cargadas: ' + ubicaciones.ventana.lineasCargadas + ', fechas del ' + ubicaciones.ventana.fechaMin + ' al ' + ubicaciones.ventana.fechaMax)}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
 `<div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de traslados</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Plano de la planta</button></div>` +
     (pestana == 1 ? planDeTraslados(ubicaciones.traslados, total, filtro, ui.ubicaciones.filtros) : planoDeRacks(ubicaciones, ocupacion))
   );
@@ -3147,6 +3166,7 @@ function vistaCompletados(conteos) {
   const filas = lista.slice(inicio, inicio + FILAS_POR_PAGINA);
   const unicos = campo => [...new Set(todos.map(p => p[campo]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'es'));
   const f = ui.picking.filtros;
+
   return (
     encabezado(TITULO, SUBTITULO) +
     tabsDeEstado(conteos) +
