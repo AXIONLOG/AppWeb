@@ -690,9 +690,13 @@ function construirCatalogo(datos, ajustes) {
   const periodoInicio = Date.UTC(fechaCorte.getUTCFullYear(), fechaCorte.getUTCMonth(),
     ajustes.periodicidadCorte === 15 && diaCorte > 15 ? 16 : 1);
   const lineasPeriodo = marcas.filter(m => Number.isFinite(m) && m >= periodoInicio && m <= corteMs).length;
-  const diasHistorial = marcas.filter(Number.isFinite);
+  const diasHistorial = marcas.filter(m => Number.isFinite(m) && m >= desde && m <= corteMs);
   const fechaMinDatos = diasHistorial.length ? Math.min(...diasHistorial) : NaN;
   const fechaMaxDatos = diasHistorial.length ? Math.max(...diasHistorial) : NaN;
+  // No asumir que los días anteriores al primer pedido observado contienen demanda cero.
+  // El denominador es el período calendario efectivamente cubierto por los registros disponibles.
+  const diasObservados = Number.isFinite(fechaMinDatos) ? Math.max(1, Math.round((fechaMaxDatos - fechaMinDatos) / 864e5) + 1) : 0;
+  const diasDemanda = Math.max(1, Math.min(ajustes.vent, diasObservados));
 
   // Pedidos posteriores a la foto del stock (día AAAAMMDD) y hasta el corte, ambos incluidos.
   // Foto 0 = el stock ya está actualizado y no se resta nada.
@@ -753,7 +757,7 @@ function construirCatalogo(datos, ajustes) {
       rack: (() => { const lista = String(s.rack ?? '').toUpperCase().split(/[,;]/).map(x => x.trim()).filter(Boolean); return lista.find(r => planta.nodos[r]) || lista[0] || ''; })(),
       zona: normalizarZona(s.zona),
       volumen: num(s.volumenm3) || 0.005,
-      demandaDiaria: (demanda[s.sku] || 0) / ajustes.vent,
+      demandaDiaria: (demanda[s.sku] || 0) / diasDemanda,
       frecuencia: frecuencia[s.sku] || 0,
       pedidosCargados: cargados[s.sku] || 0,
       // Stock real de hoy: stock del Excel menos los pedidos ya cargados (puede quedar negativo)
@@ -791,8 +795,9 @@ function construirCatalogo(datos, ajustes) {
       lineasPeriodo,
       periodicidad: ajustes.periodicidadCorte === 15 ? 'quincenal' : 'mensual',
       sinDatosPeriodo: lineasPeriodo === 0,
-      historialIncompleto: Number.isFinite(fechaMinDatos) && fechaMinDatos > desde,
-      diasObservados: Number.isFinite(fechaMinDatos) ? Math.max(1, Math.round((Math.min(fechaMaxDatos, corteMs) - Math.max(fechaMinDatos, desde)) / 864e5) + 1) : 0,
+      historialIncompleto: diasObservados < ajustes.vent,
+      diasObservados,
+      diasDemanda,
       skus: Object.keys(frecuencia).length,
       lineasCargadas: pedidos.length,
       fechaMin: marcas.reduce((a, m) => (Number.isNaN(m) ? a : Math.min(a, m)), Infinity),
@@ -3490,17 +3495,18 @@ const CLASE_ESTADO = { PEDIR: ['t-r', 'PEDIR HOY'], PRONTO: ['t-a', 'PRONTO'], P
 const HORIZONTES = ['Hoy', 'En 2 días', 'Esta semana', 'En 2 semanas', 'Este periodo'];
 // Stock que quedaría al cierre del mes si la venta sigue al ritmo diario de Pedidos
 const finDePeriodo = (fecha, periodicidad) => {
-  const anio = fecha.getUTCFullYear(), mes = fecha.getUTCMonth();
-  return periodicidad === 15 && fecha.getUTCDate() <= 15
-    ? Date.UTC(anio, mes, 15)
-    : Date.UTC(anio, mes + 1, 0);
+  const anio = fecha.getUTCFullYear(), mes = fecha.getUTCMonth(), dia = fecha.getUTCDate();
+  // Horizonte prospectivo: próximo cierre de ciclo, no los pocos días restantes del corte histórico.
+  if (periodicidad === 15) return dia <= 15 ? Date.UTC(anio, mes + 1, 0) : Date.UTC(anio, mes + 1, 15);
+  return Date.UTC(anio, mes + 2, 0);
 };
 const diasHastaFinDeMes = (fecha, periodicidad = 30) => Math.max(0, (finDePeriodo(fecha, periodicidad) - Date.UTC(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate())) / 86400000);
 const stockFinDeMes = (s, fecha, periodicidad = 30) => Math.max(0, s.stockActual - s.demandaDiaria * diasHastaFinDeMes(fecha, periodicidad));
 // Lo que hay que comprar para cerrar el mes con el stock de seguridad (0 si no hace falta)
 // Se redondea al múltiplo del tamaño de lote del SKU
 const faltaParaFinDeMes = (s, fecha, periodicidad = 30) => {
-  const falta = Math.max(0, s.stockSeguridad - stockFinDeMes(s, fecha, periodicidad));
+  const dias = diasHastaFinDeMes(fecha, periodicidad);
+  const falta = Math.max(0, s.demandaDiaria * dias + s.stockSeguridad - s.stockActual);
   return falta ? Math.ceil(falta / s.lote) * s.lote : 0;
 };
 
@@ -3543,7 +3549,7 @@ function planDeCompras(inventario) {
   // Solo SKUs con demanda (sin demanda no hay reposición que calcular), con su horizonte de compra
   const universo = inventario.filas.filter(s => s.demandaDiaria > 0);
   const unicos = campo => [...new Set(universo.map(s => s[campo]).filter(Boolean))].sort();
-  const conHorizonte = universo.map(s => ({ s, h: horizonteDeSku(s, fechaCorte, periodicidad) })).filter(({ h }) => h);
+  const conHorizonte = universo.map(s => ({ s, h: horizonteDeSku(s, fechaCorte, periodicidad) })).filter(({ h }) => h && faltaParaFinDeMes(s, fechaCorte, periodicidad) > 0);
   const texto = (ui.inventario.filtroPlan || '').trim().toLowerCase();
   const filas = conHorizonte
     .filter(
@@ -3557,10 +3563,10 @@ function planDeCompras(inventario) {
     .sort((a, b) => HORIZONTES.indexOf(a.h.nombre) - HORIZONTES.indexOf(b.h.nombre) || (a.h.dias ?? 0) - (b.h.dias ?? 0));
   return (
     `<div class="barra-filtros"><input id="filtro-plan" class="buscar" placeholder="Buscar por SKU o producto…" value="${esc(ui.inventario.filtroPlan || '')}"><div class="campos">${selectorFiltro('cuando', HORIZONTES, f.cuando)}${selectorFiltro('cliente', unicos('cliente'), f.cliente)}${selectorFiltro('zona', unicos('zona'), f.zona)}${selectorFiltro('abc', ['A', 'B', 'C'], f.abc)}</div></div>` +
-    `<p class="mu">Plan al corte ${etiquetaCorte} · ${periodicidad === 15 ? 'quincenal' : 'mensual'} · horizonte hasta ${etiquetaFin}. ${filas.length} de ${conHorizonte.length} SKUs requieren compra en el período${filas.length < conHorizonte.length ? ' con los filtros actuales' : ''}.${catalogo.ventana.historialIncompleto ? ' ⚠ Historial parcial: ' + catalogo.ventana.diasObservados + ' días observados de ' + ajustes.vent + ' configurados.' : ''}</p>` +
+    `<p class="mu">Plan prospectivo desde el corte ${etiquetaCorte} · ${periodicidad === 15 ? 'quincenal' : 'mensual'} · próximo horizonte ${etiquetaFin}. ${filas.length} de ${conHorizonte.length} SKUs requieren compra en el horizonte${filas.length < conHorizonte.length ? ' con los filtros actuales' : ''}. Demanda diaria estimada sobre ${catalogo.ventana.diasDemanda} días de registros.${catalogo.ventana.historialIncompleto ? ' ⚠ Historial parcial: ' + catalogo.ventana.diasObservados + ' días observados de ' + ajustes.vent + ' configurados; validar con operaciones.' : ''}</p>` +
     (!filas.length ? `<p class="mu">${conHorizonte.length ? 'Ningún producto coincide con los filtros actuales; seleccione Todos o borre la búsqueda.' : 'No hay productos que alcancen el punto de reorden dentro del período seleccionado.'}</p>` : '') +
     tabla(
-      ['Decisión', 'Cuándo pedir', 'SKU', 'Producto', 'Zona', 'Un.', 'Stock al corte', 'Demanda diaria', 'Stock al fin del período', 'Stock seguridad', 'Falta comprar', 'Inversión'],
+      ['Decisión', 'Cuándo pedir', 'SKU', 'Producto', 'Zona', 'Un.', 'Stock al corte', 'Demanda diaria', 'Stock proyectado al horizonte', 'Stock seguridad', 'Falta comprar', 'Inversión'],
       filas.map(({ s, h }) => [
         etiqueta(CLASE_ESTADO[s.estado][0], CLASE_ESTADO[s.estado][1]),
         h.nombre,
