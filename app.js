@@ -3549,7 +3549,7 @@ function planDeCompras(inventario) {
   // Solo SKUs con demanda (sin demanda no hay reposición que calcular), con su horizonte de compra
   const universo = inventario.filas.filter(s => s.demandaDiaria > 0);
   const unicos = campo => [...new Set(universo.map(s => s[campo]).filter(Boolean))].sort();
-  const conHorizonte = universo.map(s => ({ s, h: horizonteDeSku(s, fechaCorte, periodicidad) })).filter(({ h }) => h && faltaParaFinDeMes(s, fechaCorte, periodicidad) > 0);
+  const conHorizonte = universo.map(s => ({ s, h: horizonteDeSku(s, fechaCorte, periodicidad) })).filter(({ s, h }) => h && faltaParaFinDeMes(s, fechaCorte, periodicidad) > 0);
   const texto = (ui.inventario.filtroPlan || '').trim().toLowerCase();
   const filas = conHorizonte
     .filter(
