@@ -2377,7 +2377,7 @@ const __e = {};
 
 const { modelo, ajustes, ui } = __m["nucleo/estado.js"];
 const { sum } = __m["nucleo/formato.js"];
-const { fmt, pc, num, esc } = __m["nucleo/formato.js"];
+const { fmt, pc, num, esc, etiquetaMes } = __m["nucleo/formato.js"];
 const { kpi, tabla, barras, encabezado, etiqueta } = __m["nucleo/html.js"];
 const { graficoLineas, graficoDispersion } = __m["nucleo/graficos.js"];
 const { pantallaVacia } = __m["nucleo/requisitos.js"];
@@ -2399,7 +2399,9 @@ function render() {
   const incidenciasParaLaMeta = pendiente ? (ajustes.meta - intercepto) / pendiente : 0;
 
   const mesSel = ui.diagnostico.mes;
-  const vistaMes = mesSel === 'todos' ? null : otif.meses.find(m => m.clave === mesSel) || null;
+  const vistaMes = mesSel === 'todos' ? null : (otif.meses.find(m => m.clave === mesSel) || {
+    mes: etiquetaMes(mesSel), clave: mesSel, otif: 0, total: 0, cumplidos: 0, cajasEntregadas: 0, cajasPedidas: 0, incidencias: 0, parcial: true
+  });
   const listaCausas = vistaMes ? otif.causasPorMes[mesSel] || [] : causas.lista;
   const totalCausasVista = sum(listaCausas, c => num(c.frecuencia)) || 1;
   let acumVista = 0;
@@ -2457,8 +2459,8 @@ function render() {
   return (
     encabezado(TITULO, SUBTITULO) +
     bloqueResumen +
-    `<div class="row no-pdf" style="justify-content:flex-end"><select data-mes-diag><option value="todos">Todos los meses</option>${otif.meses.map(m => `<option value="${esc(m.clave)}" ${mesSel === m.clave ? 'selected' : ''}>${esc(m.mes)}</option>`).join('')}</select><button class="btn p" id="pdf-diagnostico">⬇ Guardar PDF</button></div>` +
-    `<div class="grid">${vistaMes ? kpi('OTIF del mes', fmt(vistaMes.otif, 1) + ' %', `${fmt(vistaMes.otif - ajustes.meta, 1)} pp frente a la meta · ${fmt(vistaMes.cumplidos)} de ${fmt(vistaMes.total)} pedidos`, vistaMes.otif < ajustes.meta ? 'er' : 'ok') : kpi('OTIF promedio', fmt(otif.promedio, 1) + ' %', `${fmt(otif.promedio - ajustes.meta, 1)} pp frente a la meta`, 'er')}${vistaMes ? '' : kpi('Meses bajo la meta', otif.bajoMeta + ' de ' + otif.completos.length, '', 'er')}${vistaMes ? '' : kpi('Relación incidencias ↔ OTIF', 'R² = ' + fmt(r2 * 100, 0) + ' %', `Pendiente ${fmt(pendiente, 3)} pp por incidencia`)}${kpi('In Full (Fill Rate)', fmt(fillRate * 100, 2) + ' %', 'Cajas entregadas ÷ pedidas', 'ok')}</div>
+    `<div class="row no-pdf" style="justify-content:flex-end;align-items:center"><label class="mu" style="display:flex;align-items:center;gap:6px">Mes <input type="month" data-mes-diag value="${mesSel === 'todos' ? '' : esc(mesSel)}"></label>${mesSel === 'todos' ? '' : '<button class="btn" data-mes-todos>Todos los meses</button>'}<button class="btn p" id="pdf-diagnostico">⬇ Guardar PDF</button></div>` +
+    `<div class="grid">${vistaMes ? kpi('OTIF del mes', vistaMes.total ? fmt(vistaMes.otif, 1) + ' %' : '—', (vistaMes.total ? `${fmt(vistaMes.otif - ajustes.meta, 1)} pp frente a la meta · ${fmt(vistaMes.cumplidos)} de ${fmt(vistaMes.total)} pedidos` : 'Sin pedidos entregados en el mes'), vistaMes.otif < ajustes.meta ? 'er' : 'ok') : kpi('OTIF promedio', fmt(otif.promedio, 1) + ' %', `${fmt(otif.promedio - ajustes.meta, 1)} pp frente a la meta`, 'er')}${vistaMes ? '' : kpi('Meses bajo la meta', otif.bajoMeta + ' de ' + otif.completos.length, '', 'er')}${vistaMes ? '' : kpi('Relación incidencias ↔ OTIF', 'R² = ' + fmt(r2 * 100, 0) + ' %', `Pendiente ${fmt(pendiente, 3)} pp por incidencia`)}${kpi('In Full (Fill Rate)', fmt(fillRate * 100, 2) + ' %', 'Cajas entregadas ÷ pedidas', 'ok')}</div>
 ${vistaMes ? '' : `<div class="card"><h2>Evolución mensual del OTIF</h2>${graficoLineas(otif.meses, ajustes.meta)}</div>`}
 <div class="grid g2">${vistaMes ? '' : `<div class="card"><h2>¿Las incidencias explican el OTIF?</h2>${graficoDispersion(otif.puntos, regresion, ajustes.meta)}<p class="mu">Recta: OTIF = ${fmt(intercepto, 2)} ${fmt(pendiente, 4)} × incidencias. Para alcanzar ${ajustes.meta} % harían falta unas <b>${fmt(incidenciasParaLaMeta)}</b> incidencias/mes (hoy ${fmt(incidenciasPromedio)}).</p></div>`}
 <div class="card"><h2>Causas de las incidencias (Pareto)</h2>${pareto}<p class="mu">Verde: causas que la app ayuda a atacar con sus módulos. Gris: el resto.</p></div></div>
@@ -2468,13 +2470,17 @@ ${vistaMes ? '' : `<div class="card"><h2>Evolución mensual del OTIF</h2>${grafi
 }
 
 // El PDF se pide en el momento del clic (no al cargar) para evitar una dependencia circular con pdf.js
-function enlazar() {
+function enlazar({ refrescar }) {
   alClick('#pdf-diagnostico', () => __m["modulos/diagnostico/pdf.js"].descargarDiagnosticoPdf());
   document.querySelectorAll('[data-mes-diag]').forEach(selector => {
     selector.onchange = () => {
-      ui.diagnostico.mes = selector.value;
+      ui.diagnostico.mes = selector.value || 'todos';
       refrescar();
     };
+  });
+  alClick('[data-mes-todos]', () => {
+    ui.diagnostico.mes = 'todos';
+    refrescar();
   });
 }
 
