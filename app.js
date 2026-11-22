@@ -3487,29 +3487,35 @@ const CLASE_ESTADO = { PEDIR: ['t-r', 'PEDIR HOY'], PRONTO: ['t-a', 'PRONTO'], P
 
 // Cuándo llegaría cada SKU a su punto de reorden: días = (stock − punto de reorden) ÷ demanda diaria
 // Solo se muestran los SKUs que hay que comprar hasta fin de este mes
-const HORIZONTES = ['Hoy', 'En 2 días', 'Esta semana', 'En 2 semanas', 'Este mes'];
+const HORIZONTES = ['Hoy', 'En 2 días', 'Esta semana', 'En 2 semanas', 'Este periodo'];
 // Stock que quedaría al cierre del mes si la venta sigue al ritmo diario de Pedidos
-const diasHastaFinDeMes = hoy => Math.max(0, (new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0, 23, 59, 59) - hoy) / 86400000);
-const stockFinDeMes = (s, hoy) => Math.max(0, s.stockActual - s.demandaDiaria * diasHastaFinDeMes(hoy));
+const finDePeriodo = (fecha, periodicidad) => {
+  const anio = fecha.getUTCFullYear(), mes = fecha.getUTCMonth();
+  return periodicidad === 15 && fecha.getUTCDate() <= 15
+    ? Date.UTC(anio, mes, 15)
+    : Date.UTC(anio, mes + 1, 0);
+};
+const diasHastaFinDeMes = (fecha, periodicidad = 30) => Math.max(0, (finDePeriodo(fecha, periodicidad) - Date.UTC(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate())) / 86400000);
+const stockFinDeMes = (s, fecha, periodicidad = 30) => Math.max(0, s.stockActual - s.demandaDiaria * diasHastaFinDeMes(fecha, periodicidad));
 // Lo que hay que comprar para cerrar el mes con el stock de seguridad (0 si no hace falta)
 // Se redondea al múltiplo del tamaño de lote del SKU
-const faltaParaFinDeMes = (s, hoy) => {
-  const falta = Math.max(0, s.stockSeguridad - stockFinDeMes(s, hoy));
+const faltaParaFinDeMes = (s, fecha, periodicidad = 30) => {
+  const falta = Math.max(0, s.stockSeguridad - stockFinDeMes(s, fecha, periodicidad));
   return falta ? Math.ceil(falta / s.lote) * s.lote : 0;
 };
 
-function horizonteDeSku(s, hoy = new Date()) {
+function horizonteDeSku(s, fechaCorte, periodicidad = 30) {
   if (!(s.demandaDiaria > 0)) return null;
   const dias = Math.max(0, (s.stockActual - s.puntoReorden) / s.demandaDiaria);
-  const fecha = new Date(hoy.getTime() + dias * 86400000);
-  const finEsteMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0, 23, 59, 59);
+  const fecha = new Date(fechaCorte.getTime() + dias * 86400000);
+  const finEsteMes = new Date(finDePeriodo(fechaCorte, periodicidad));
   let nombre = null;
   if (dias <= 0) nombre = 'Hoy';
   else if (dias <= 2) nombre = 'En 2 días';
   else if (dias <= 7) nombre = 'Esta semana';
   else if (dias <= 15) nombre = 'En 2 semanas'; // 15 días máximo
   // Este mes: de 15 días hasta fin de mes
-  else if (fecha <= finEsteMes) nombre = 'Este mes';
+  else if (fecha <= finEsteMes) nombre = 'Este periodo';
   return nombre ? { nombre, dias, fecha } : null;
 }
 const CONTEO_POR_SEMANA = 40;
@@ -3527,11 +3533,17 @@ const selectorFiltroDif = (campo, valores, actual) =>
 
 function planDeCompras(inventario) {
   const f = ui.inventario.filtros;
-  const hoy = new Date();
+  const { catalogo } = modelo;
+  const fechaCorte = new Date(catalogo.corte);
+  const periodicidad = ajustes.periodicidadCorte === 15 ? 15 : 30;
+  const etiquetaCorte = fechaCorte.toISOString().slice(0, 10);
+  const etiquetaFin = new Date(finDePeriodo(fechaCorte, periodicidad)).toISOString().slice(0, 10);
+  const sinDatos = catalogo.ventana.sinDatosPeriodo || catalogo.ventana.lineas === 0;
+  if (sinDatos) return `<div class="card"><p class="mu">No hay pedidos en el corte ${esc(etiquetaCorte)} (${periodicidad === 15 ? 'quincenal' : 'mensual'}). No se puede estimar el plan de compras. Seleccione un corte con pedidos en Ajustes.</p></div>`;
   // Solo SKUs con demanda (sin demanda no hay reposición que calcular), con su horizonte de compra
   const universo = inventario.filas.filter(s => s.demandaDiaria > 0);
   const unicos = campo => [...new Set(universo.map(s => s[campo]).filter(Boolean))].sort();
-  const conHorizonte = universo.map(s => ({ s, h: horizonteDeSku(s, hoy) })).filter(({ h }) => h);
+  const conHorizonte = universo.map(s => ({ s, h: horizonteDeSku(s, fechaCorte, periodicidad) })).filter(({ h }) => h);
   const texto = (ui.inventario.filtroPlan || '').trim().toLowerCase();
   const filas = conHorizonte
     .filter(
@@ -3545,9 +3557,10 @@ function planDeCompras(inventario) {
     .sort((a, b) => HORIZONTES.indexOf(a.h.nombre) - HORIZONTES.indexOf(b.h.nombre) || (a.h.dias ?? 0) - (b.h.dias ?? 0));
   return (
     `<div class="barra-filtros"><input id="filtro-plan" class="buscar" placeholder="Buscar por SKU o producto…" value="${esc(ui.inventario.filtroPlan || '')}"><div class="campos">${selectorFiltro('cuando', HORIZONTES, f.cuando)}${selectorFiltro('cliente', unicos('cliente'), f.cliente)}${selectorFiltro('zona', unicos('zona'), f.zona)}${selectorFiltro('abc', ['A', 'B', 'C'], f.abc)}</div></div>` +
-    `<p class="mu">Mostrando ${filas.length} SKUs que hay que comprar hasta fin de este mes.</p>` +
+    `<p class="mu">Plan al corte ${etiquetaCorte} · ${periodicidad === 15 ? 'quincenal' : 'mensual'} · horizonte hasta ${etiquetaFin}. ${filas.length} de ${conHorizonte.length} SKUs requieren compra en el período${filas.length < conHorizonte.length ? ' con los filtros actuales' : ''}.${catalogo.ventana.historialIncompleto ? ' ⚠ Historial parcial: ' + catalogo.ventana.diasObservados + ' días observados de ' + ajustes.vent + ' configurados.' : ''}</p>` +
+    (!filas.length ? `<p class="mu">${conHorizonte.length ? 'Ningún producto coincide con los filtros actuales; seleccione Todos o borre la búsqueda.' : 'No hay productos que alcancen el punto de reorden dentro del período seleccionado.'}</p>` : '') +
     tabla(
-      ['Decisión', 'Cuándo pedir', 'SKU', 'Producto', 'Zona', 'Un.', 'Stock hoy', 'Venta diaria', 'Stock a fin de mes', 'Stock seguridad', 'Falta comprar', 'Inversión'],
+      ['Decisión', 'Cuándo pedir', 'SKU', 'Producto', 'Zona', 'Un.', 'Stock al corte', 'Demanda diaria', 'Stock al fin del período', 'Stock seguridad', 'Falta comprar', 'Inversión'],
       filas.map(({ s, h }) => [
         etiqueta(CLASE_ESTADO[s.estado][0], CLASE_ESTADO[s.estado][1]),
         h.nombre,
@@ -3557,10 +3570,10 @@ function planDeCompras(inventario) {
         esc(s.um),
         fmt(s.stockActual),
         fmt(s.demandaDiaria, 1),
-        fmt(stockFinDeMes(s, hoy)),
+        fmt(stockFinDeMes(s, fechaCorte, periodicidad)),
         fmt(s.stockSeguridad),
-        fmt(faltaParaFinDeMes(s, hoy)),
-        sol(faltaParaFinDeMes(s, hoy) * s.costo)
+        fmt(faltaParaFinDeMes(s, fechaCorte, periodicidad)),
+        sol(faltaParaFinDeMes(s, fechaCorte, periodicidad) * s.costo)
       ])
     )
   );
