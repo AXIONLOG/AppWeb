@@ -1206,7 +1206,7 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
     ocupadoHoy[s.rack] -= volumen;
     propuesta[s.sku] = destino;
 
-    const ahorroSemanal = (s.frecuencia / ajustes.vent) * 7 * 2 * Math.max(mejoraDestino, 0);
+    const ahorroSemanal = (s.frecuencia / catalogo.ventana.diasDemanda) * 7 * 2 * Math.max(mejoraDestino, 0);
     ahorro += ahorroSemanal;
     traslados.push({
       ...s,
@@ -1249,8 +1249,8 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
 
       const mejoraS = alMuelle(s.rack) - alMuelle(D.id);
       const mejoraT = alMuelle(D.id) - alMuelle(s.rack); // negativa: el SKU que cede pierde metros
-      const ahorroS = (s.frecuencia / ajustes.vent) * 7 * 2 * mejoraS;
-      const ahorroT = (t.frecuencia / ajustes.vent) * 7 * 2 * mejoraT;
+      const ahorroS = (s.frecuencia / catalogo.ventana.diasDemanda) * 7 * 2 * mejoraS;
+      const ahorroT = (t.frecuencia / catalogo.ventana.diasDemanda) * 7 * 2 * mejoraT;
       ahorro += ahorroS + ahorroT;
       traslados.push({
         ...s,
@@ -2760,7 +2760,7 @@ function render() {
   return (
     encabezado(TITULO, SUBTITULO, `<button class="btn" id="exportar">⬇ Exportar plan</button>`) +
     (pestana == 1 ? avisosDelPlan(ubicaciones.avisos) : '') +
-    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', (ubicaciones.ahorro == null ? 'Sin datos suficientes' : fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes')), 'corte ' + ubicaciones.ventana.periodicidad + ' desde ' + ubicaciones.ventana.periodoInicio + ' (' + ubicaciones.ventana.lineasPeriodo + ' líneas) · ahorro potencial de recorrido si se aplican todos · ventana histórica ' + ubicaciones.ventana.desde + ' a ' + ubicaciones.ventana.corte + ': ' + ubicaciones.ventana.lineas + ' líneas de pedido de ' + ubicaciones.ventana.skus + ' SKU' + ubicaciones.ventana.aviso + ' · líneas cargadas: ' + ubicaciones.ventana.lineasCargadas + ', fechas del ' + ubicaciones.ventana.fechaMin + ' al ' + ubicaciones.ventana.fechaMax)}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
+    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', (ubicaciones.ahorro == null ? 'Sin datos suficientes' : fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes')), ubicaciones.ahorro == null ? 'sin pedidos en el corte seleccionado' : 'metros de recorrido por periodo si se aplican todos')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
 `<div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de traslados</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Plano de la planta</button></div>` +
     (pestana == 1 ? planDeTraslados(ubicaciones.traslados, total, filtro, ui.ubicaciones.filtros) : planoDeRacks(ubicaciones, ocupacion))
   );
@@ -3970,7 +3970,7 @@ function enlazar({ guardarAjustes, copiar }) {
         return;
       }
     }
-    $('[data-ajuste]').forEach(c => (ajustes[c.dataset.ajuste] = +c.value));
+    $$('[data-ajuste]').forEach(c => (ajustes[c.dataset.ajuste] = +c.value));
     guardarAjustes();
   });
   alClick('#restablecer', () => {
