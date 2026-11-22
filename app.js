@@ -447,7 +447,6 @@ function construirPlanta(layout) {
     )
   );
   layout.muros.forEach(m => marcar(m.x0, m.y0, m.x1, m.y1, 2, 0)); // cualquier muro que toque una celda la bloquea
-
   const celdaDe = (x, y) => {
     const cx = Math.min(columnas - 1, Math.max(0, Math.floor(x / celda)));
     const cy = Math.min(filas - 1, Math.max(0, Math.floor(y / celda)));
@@ -690,10 +689,12 @@ function construirCatalogo(datos, ajustes) {
 
   const demanda = {}; // unidades pedidas por SKU
   const frecuencia = {}; // líneas de pedido por SKU
+  let lineasEnVentana = 0;
   pedidos.forEach((p, i) => {
     if (marcas[i] >= desde && marcas[i] <= corteMs) {
       demanda[p.sku] = (demanda[p.sku] || 0) + num(p.cantidad);
       frecuencia[p.sku] = (frecuencia[p.sku] || 0) + 1;
+      lineasEnVentana++;
     }
   });
 
@@ -761,7 +762,8 @@ function construirCatalogo(datos, ajustes) {
     pedidos: listaPedidos,
     nPedidos: listaPedidos.length,
     nLineas: pedidos.length,
-    corte: corteMs
+    corte: corteMs,
+    ventana: { desde, corte: corteMs, lineas: lineasEnVentana, skus: Object.keys(frecuencia).length }
   };
 }
 
@@ -1248,6 +1250,12 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
     traslados,
     ahorro: (ahorro * ajustes.reubicacion) / 7, // metros de recorrido por periodo de reubicación (mensual o quincenal)
     periodoDias: ajustes.reubicacion,
+    ventana: {
+      desde: new Date(catalogo.ventana.desde).toISOString().slice(0, 10),
+      corte: new Date(catalogo.ventana.corte).toISOString().slice(0, 10),
+      lineas: catalogo.ventana.lineas,
+      skus: catalogo.ventana.skus
+    },
     riesgoTermico: traslados.filter(t => t.riesgoTermico).length,
     sinUbicacion: sinRack.length + rackVacio.length,
     actual, // { sku: rack } hoy
@@ -1995,8 +2003,9 @@ const tabla = (cabeceras, filas) =>
     .join('')}</table></div>`;
 
 // Barras horizontales. Cada fila: [nombre, valor, color, texto a la derecha].
-function barras(filas, colorPorDefecto) {
-  const maximo = Math.max(...filas.map(f => f[1]), 1);
+// `escala`: valor que representa el 100 % de la barra (100 para porcentajes). Sin escala, la barra más larga es el 100 %.
+function barras(filas, colorPorDefecto, escala = null) {
+  const maximo = escala ?? Math.max(...filas.map(f => f[1]), 1);
   return filas
     .map(
       f =>
@@ -2282,14 +2291,15 @@ function render() {
         ['In Full (cajas)', otif.inFull * 100, '#2563eb', fmt(otif.inFull * 100, 2) + ' %'],
         ['OTIF', otif.promedio, otif.promedio < ajustes.meta ? '#dc2626' : '#16a34a', fmt(otif.promedio, 1) + ' %']
       ],
-      '#2563eb'
+      '#2563eb',
+      100
     )}<p>${fmt(otif.pedidosFuera)} de ${fmt(otif.pedidosTotales)} pedidos quedaron fuera del OTIF.</p><p class="mu">Mejor mes: <b>${mejorMes.mes} · ${fmt(mejorMes.otif, 1)} %</b><br>Peor mes: <b>${peorMes.mes} · ${fmt(peorMes.otif, 1)} %</b><br>Meses bajo la meta: <b>${otif.bajoMeta} de ${otif.completos.length}</b></p></div></div>
 ${(() => {
   const colorDe = valor => (valor * 100 >= ajustes.eri ? '#16a34a' : valor * 100 >= ajustes.eri - ajustes.toleranciaEri ? '#d97706' : '#dc2626');
   const filas = inventario.porZona.map(z => [z.zona, z.eri * 100, colorDe(z.eri), pc(z.eri)]);
   filas.push(['Total', inventario.eri * 100, colorDe(inventario.eri), pc(inventario.eri)]);
   const peor = inventario.porZona.reduce((a, b) => (b.eri < a.eri ? b : a));
-  return `<div class="card"><h2>Desglose del ERI</h2><p class="mu">ERI = SKUs contados que cuadran con el sistema, sobre el total de SKUs contados.</p>${barras(filas, '#2563eb')}<p>${fmt(inventario.diferencias.length)} de ${fmt(inventario.contados)} SKUs contados tienen diferencia.</p><p class="mu">Faltantes: <b>${fmt(inventario.faltantes)}</b> · Sobrantes: <b>${fmt(inventario.sobrantes)}</b><br>Peor zona: <b>${peor.zona} · ${pc(peor.eri)}</b><br>ERI valorizado: <b>${pc(inventario.eriValorizado)}</b><br>Meta ${ajustes.eri} % · Tolerancia de ${ajustes.toleranciaEri} %</p></div>`;
+  return `<div class="card"><h2>Desglose del ERI</h2><p class="mu">ERI = SKUs contados que cuadran con el sistema, sobre el total de SKUs contados.</p>${barras(filas, '#2563eb', 100)}<p>${fmt(inventario.diferencias.length)} de ${fmt(inventario.contados)} SKUs contados tienen diferencia.</p><p class="mu">Faltantes: <b>${fmt(inventario.faltantes)}</b> · Sobrantes: <b>${fmt(inventario.sobrantes)}</b><br>Peor zona: <b>${peor.zona} · ${pc(peor.eri)}</b><br>ERI valorizado: <b>${pc(inventario.eriValorizado)}</b><br>Meta ${ajustes.eri} % · Tolerancia de ${ajustes.toleranciaEri} %</p></div>`;
 })()}
 <h2>Tareas ordenadas por urgencia</h2><div class="grid g2"><div class="card task"><big style="color:var(--er)">${aReponer}</big><div><b>Generar pedidos de reposición</b><p class="mu">SKUs en o bajo su punto de reorden. Otros ${inventario.pronto} lo estarán pronto.</p><button class="btn r" data-go="inv">Ver plan de compras →</button></div></div><div class="card task"><big style="color:var(--er)">${ubicaciones ? ubicaciones.riesgoTermico : '—'}</big><div><b>Trasladar productos mal ubicados</b><p class="mu">Productos fuera de su cámara: trasladarlos primero.</p><button class="btn r" data-go="ubic">Ver traslados →</button></div></div><div class="card task a"><big style="color:var(--wa)">${Math.min(40, inventario.diferencias.length)}</big><div><b>Conteo cíclico de la semana</b><p class="mu">Hay ${inventario.diferencias.length} SKUs con diferencia entre sistema y físico: se cuentan primero.</p><button class="btn o" data-go="inv" data-pestana="2">Ver lista de conteo →</button></div></div><div class="card task b"><big style="color:var(--ac)">→</big><div><b>Armar un pedido con la mejor ruta</b><p class="mu">Elija un pedido, vea el recorrido y descargue la hoja de picking.</p><button class="btn p" data-go="pick">Ir a Picking →</button></div></div></div>
 <div class="card"><h2>Estado de los datos</h2>${estadoDeTabla('Inventario', datos.inventario.length, 'SKUs')} ${estadoDeTabla('Pedidos', datos.pedidos.length, 'líneas')} ${estadoDeTabla('OTIF', datos.otif.length, 'meses')} ${estadoDeTabla('Causas', datos.causas.length, 'causas')} ${estadoDeTabla('Layout', datos.ubicaciones.length, 'ubicaciones')} <button class="btn" data-go="datos">Gestionar datos</button><p class="mu">Demanda calculada con ${fmt(catalogo.nPedidos)} pedidos de los últimos ${ajustes.vent} días.</p></div>`
@@ -2704,7 +2714,7 @@ function render() {
   return (
     encabezado(TITULO, SUBTITULO, `<button class="btn" id="exportar">⬇ Exportar plan</button>`) +
     (pestana == 1 ? avisosDelPlan(ubicaciones.avisos) : '') +
-    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes'), 'metros de recorrido por periodo si se aplican todos')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
+    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes'), 'metros de recorrido por periodo si se aplican todos · ventana de demanda ' + ubicaciones.ventana.desde + ' a ' + ubicaciones.ventana.corte + ': ' + ubicaciones.ventana.lineas + ' líneas de pedido de ' + ubicaciones.ventana.skus + ' SKU')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
 `<div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de traslados</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Plano de la planta</button></div>` +
     (pestana == 1 ? planDeTraslados(ubicaciones.traslados, total, filtro, ui.ubicaciones.filtros) : planoDeRacks(ubicaciones, ocupacion))
   );
@@ -3136,7 +3146,6 @@ function vistaCompletados(conteos) {
   const filas = lista.slice(inicio, inicio + FILAS_POR_PAGINA);
   const unicos = campo => [...new Set(todos.map(p => p[campo]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'es'));
   const f = ui.picking.filtros;
-
   return (
     encabezado(TITULO, SUBTITULO) +
     tabsDeEstado(conteos) +
