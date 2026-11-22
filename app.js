@@ -447,6 +447,7 @@ function construirPlanta(layout) {
     )
   );
   layout.muros.forEach(m => marcar(m.x0, m.y0, m.x1, m.y1, 2, 0)); // cualquier muro que toque una celda la bloquea
+
   const celdaDe = (x, y) => {
     const cx = Math.min(columnas - 1, Math.max(0, Math.floor(x / celda)));
     const cy = Math.min(filas - 1, Math.max(0, Math.floor(y / celda)));
@@ -896,7 +897,8 @@ function otifDesdePedidos(datos, ajustes) {
   const porPedido = new Map();
   pedidos.forEach(p => {
     if (!porPedido.has(p.pedidoid)) porPedido.set(p.pedidoid, []);
-    porPedido.get(p.pedidoid).push(p);  });
+    porPedido.get(p.pedidoid).push(p);
+  });
 
   const incidenciasPorMesOtif = new Map(
     datos.otif.map(f => [etiquetaMes(f.mes), f.incidencias === undefined || f.incidencias === '' ? null : num(f.incidencias)])
@@ -1345,7 +1347,8 @@ function calcularRuta(pedido, metodo, ubicaciones, { porSku, planta, ajustes }) 
 
   let paradas;
   if (metodo === 'lista') {
-    // Se visita en el orden de la lista impresa (por código de SKU)    paradas = [];
+    // Se visita en el orden de la lista impresa (por código de SKU)
+    paradas = [];
     [...lineas]
       .sort((a, b) => a.sku.localeCompare(b.sku))
       .forEach(l => {
@@ -1794,7 +1797,8 @@ const PESTANAS = [
     opcional: true,
     obligatorias: [
       ['parametro', 'Parametro'],
-      ['valor', 'Valor']    ]
+      ['valor', 'Valor']
+    ]
   }
 ];
 
@@ -2243,7 +2247,8 @@ const __e = {};
 
 const { modelo, ajustes, datos } = __m["nucleo/estado.js"];
 const { fmt, pc, sol, sum } = __m["nucleo/formato.js"];
-const { kpi, barras, encabezado, etiqueta } = __m["nucleo/html.js"];const { graficoLineas } = __m["nucleo/graficos.js"];
+const { kpi, barras, encabezado, etiqueta } = __m["nucleo/html.js"];
+const { graficoLineas } = __m["nucleo/graficos.js"];
 const { pantallaVacia } = __m["nucleo/requisitos.js"];
 
 const TITULO = 'Panel de control';
@@ -2692,7 +2697,8 @@ function render() {
   const vacio = pantallaVacia(TITULO, SUBTITULO, ['inventario', 'layout', 'pedidos']);
   if (vacio) return vacio;
 
-  const { catalogo, ubicaciones } = modelo;  const { pestana, filtro, ocupacion } = ui.ubicaciones;
+  const { catalogo, ubicaciones } = modelo;
+  const { pestana, filtro, ocupacion } = ui.ubicaciones;
   const total = catalogo.skus.length;
 
   return (
@@ -3141,7 +3147,8 @@ function vistaCompletados(conteos) {
           ['Pedido', 'Fecha pedido', 'Cliente', 'Tienda', 'Fecha entrega', ''],
           filas.map(p => [
             '<b>' + esc(p.id) + '</b>',
-            fechaDe(p.marca),            esc(p.cliente),
+            fechaDe(p.marca),
+            esc(p.cliente),
             esc(p.tienda),
             fechaDe(p.marcaEntrega),
             `<button class="btn" data-devolver="${esc(p.id)}">Devolver a Pendientes</button>`
@@ -3590,7 +3597,8 @@ function conteoCiclico(inventario) {
           s.orden,
           esc(s.sku),
           esc(s.descripcion),
-          etiquetaZona(s.zona),          esc(s.rack),
+          etiquetaZona(s.zona),
+          esc(s.rack),
           s.abc,
           fmt(s.stockSistema),
           tieneConteo ? fmt(s.stockFisico) : '—',
@@ -4039,7 +4047,8 @@ function componentes(mascara, ancho, alto, radio, bloqueo) {
   const visto = new Uint8Array(unida.length);
   const pila = new Int32Array(unida.length);
   const lista = [];
-  for (let inicio = 0; inicio < unida.length; inicio++) {    if (!unida[inicio] || visto[inicio]) continue;
+  for (let inicio = 0; inicio < unida.length; inicio++) {
+    if (!unida[inicio] || visto[inicio]) continue;
     let tope = 0;
     pila[tope++] = inicio;
     visto[inicio] = 1;
@@ -4488,7 +4497,8 @@ function revisar(layout, lineas) {
   const nombres = lineas.map(l => l.nombre);
   if (new Set(nombres).size !== nombres.length) avisos.push('Hay dos columnas o filas con el mismo nombre.');
   if (!layout.metrosPorPixel) avisos.push('Falta la escala del plano.');
-  return avisos;}
+  return avisos;
+}
 
 // Las tres tablas que se pegan en el Google Sheet (la primera fila son los títulos)
 function tablasParaSheet(layout) {
@@ -4937,7 +4947,8 @@ function enlazar({ refrescar }) {
     linea.saltos = linea.saltos || {};
     if (valor === '') delete linea.saltos[despuesDe];
     else linea.saltos[despuesDe] = Math.max(1, Math.round(Number(valor)));
-    refrescar();  });
+    refrescar();
+  });
   $$('tr[data-linea]').forEach(fila => {
     fila.onmouseenter = () => {
       asistente.resaltada = +fila.dataset.linea;
