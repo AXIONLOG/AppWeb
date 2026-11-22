@@ -132,10 +132,11 @@ const modelo = {
 
 // Lo que el usuario eligió en cada pantalla (pestaña activa, filtros, pedido elegido…).
 const ui = {
-  ubicaciones: { pestana: 1, filtro: '', ocupacion: 0, zonaPlano: '', rackPlano: '', filtros: { prioridad: '', cliente: '', zona: '', abc: '' } },
+  ubicaciones: { ahorroMes: '', pestana: 1, filtro: '', ocupacion: 0, zonaPlano: '', rackPlano: '', filtros: { prioridad: '', cliente: '', zona: '', abc: '' } },
   picking: { pedido: '', metodo: 'zonas', plan: 0, estado: 'pendientes', pagina: 1, buscar: '', filtros: { cliente: '', tienda: '' }, recorridoMaximizado: false, origen: 'real', manual: [], manualCantidad: 1 },
   inventario: { pestana: 1, filtros: { cuando: '', zona: '', cliente: '', abc: '' }, filtrosDif: { zona: '', cliente: '', abc: '' }, filtroDif: '', semanaConteo: 1, filtroConteo: '', filtroPlan: '' },
-  escenarios: { demanda: 0, leadTime: 0, servicio: 0 }
+  escenarios: { demanda: 0, leadTime: 0, servicio: 0 },
+  diagnostico: { mes: 'todos' }
 };
 
 Object.defineProperty(__e, 'datos', { get: () => datos, enumerable: true });
@@ -947,6 +948,7 @@ function otifDesdePedidos(datos, ajustes) {
 
   const mesesPorClave = new Map();
   const conteoCausas = new Map();
+  const conteoCausasMes = new Map();
   porPedido.forEach(lineas => {
     const esperada = aMarcaDeTiempo(lineas[0].fechaesperada);
     if (Number.isNaN(esperada)) return;
@@ -974,6 +976,8 @@ function otifDesdePedidos(datos, ajustes) {
     const motivos = [...new Set(lineas.map(l => String(l.motivo ?? '').trim()).filter(Boolean))];
     if (motivos.length) m.incidenciasCalc += 1;
     motivos.forEach(c => conteoCausas.set(c, (conteoCausas.get(c) || 0) + 1));
+    if (!conteoCausasMes.has(clave)) conteoCausasMes.set(clave, new Map());
+    motivos.forEach(c => conteoCausasMes.get(clave).set(c, (conteoCausasMes.get(clave).get(c) || 0) + 1));
   });
 
   const filas = [...mesesPorClave.values()]
@@ -991,7 +995,13 @@ function otifDesdePedidos(datos, ajustes) {
         .map(([causa, frecuencia]) => ({ causa, etapa: 'Sin etapa', frecuencia: String(frecuencia) }))
     : [];
 
-  return { filas, causas };
+  const causasPorMes = Object.fromEntries(
+    [...conteoCausasMes].map(([clave, mapa]) => [
+      clave,
+      [...mapa.entries()].sort((a, b) => b[1] - a[1]).map(([causa, frecuencia]) => ({ causa, etapa: 'Sin etapa', frecuencia: String(frecuencia) }))
+    ])
+  );
+  return { filas, causas, causasPorMes };
 }
 
 function calcularOtif(datos, ajustes) {
@@ -1003,6 +1013,7 @@ function calcularOtif(datos, ajustes) {
     const cumplidos = num(fila.pedidosotif);
     return {
       mes: etiquetaMes(fila.mes),
+      clave: fila.mes,
       otif: total ? (cumplidos / total) * 100 : 0,
       total, // pedidos del mes
       cumplidos, // pedidos a tiempo y completos
@@ -1054,6 +1065,7 @@ function calcularOtif(datos, ajustes) {
     inFull: sum(completos, m => m.cajasEntregadas) / (sum(completos, m => m.cajasPedidas) || 1),
     pedidosFuera: sum(completos, m => m.total - m.cumplidos),
     pedidosTotales: sum(completos, m => m.total),
+    causasPorMes: desdePedidos ? desdePedidos.causasPorMes : {},
     causas: { lista, total: totalCausas, porEtapa, acumulados }
   };
 }
@@ -2363,7 +2375,8 @@ __m["modulos/diagnostico/vista.js"] = (function () {
 const __e = {};
 // Diagnóstico OTIF: ¿qué tan bien cumplimos y por qué falla?
 
-const { modelo, ajustes } = __m["nucleo/estado.js"];
+const { modelo, ajustes, ui } = __m["nucleo/estado.js"];
+const { sum } = __m["nucleo/formato.js"];
 const { fmt, pc, num, esc } = __m["nucleo/formato.js"];
 const { kpi, tabla, barras, encabezado, etiqueta } = __m["nucleo/html.js"];
 const { graficoLineas, graficoDispersion } = __m["nucleo/graficos.js"];
@@ -2385,12 +2398,20 @@ function render() {
   // Incidencias por mes con las que la recta cruzaría la meta
   const incidenciasParaLaMeta = pendiente ? (ajustes.meta - intercepto) / pendiente : 0;
 
+  const mesSel = ui.diagnostico.mes;
+  const vistaMes = mesSel === 'todos' ? null : otif.meses.find(m => m.clave === mesSel) || null;
+  const listaCausas = vistaMes ? otif.causasPorMes[mesSel] || [] : causas.lista;
+  const totalCausasVista = sum(listaCausas, c => num(c.frecuencia)) || 1;
+  let acumVista = 0;
+  const acumuladosVista = listaCausas.map(c => (acumVista += num(c.frecuencia)) / totalCausasVista);
+  const fillRate = vistaMes ? vistaMes.cajasEntregadas / (vistaMes.cajasPedidas || 1) : otif.inFull;
+
   const pareto = barras(
-    causas.lista.map((c, i) => [
+    listaCausas.map((c, i) => [
       esc(c.causa),
       num(c.frecuencia),
       esCausaQueAtacaUnModulo(c.causa) ? '#16a34a' : '#94a3b8',
-      `${fmt(num(c.frecuencia))} · ${pc(num(c.frecuencia) / causas.total)} (acum. ${pc(causas.acumulados[i], 0)})`
+      `${fmt(num(c.frecuencia))} · ${pc(num(c.frecuencia) / totalCausasVista)} (acum. ${pc(acumuladosVista[i], 0)})`
     ])
   );
 
@@ -2413,8 +2434,8 @@ function render() {
 
   return (
     encabezado(TITULO, SUBTITULO) +
-    `<div class="row no-pdf" style="justify-content:flex-end"><button class="btn p" id="pdf-diagnostico">⬇ Guardar PDF</button></div>` +
-    `<div class="grid">${kpi('OTIF promedio', fmt(otif.promedio, 1) + ' %', `${fmt(otif.promedio - ajustes.meta, 1)} pp frente a la meta`, 'er')}${kpi('Meses bajo la meta', otif.bajoMeta + ' de ' + otif.completos.length, '', 'er')}${kpi('Relación incidencias ↔ OTIF', 'R² = ' + fmt(r2 * 100, 0) + ' %', `Pendiente ${fmt(pendiente, 3)} pp por incidencia`)}${kpi('In Full (Fill Rate)', fmt(otif.inFull * 100, 2) + ' %', 'Cajas entregadas ÷ pedidas', 'ok')}</div>
+    `<div class="row no-pdf" style="justify-content:flex-end"><select data-mes-diag><option value="todos">Todos los meses</option>${otif.meses.map(m => `<option value="${esc(m.clave)}" ${mesSel === m.clave ? 'selected' : ''}>${esc(m.mes)}</option>`).join('')}</select><button class="btn p" id="pdf-diagnostico">⬇ Guardar PDF</button></div>` +
+    `<div class="grid">${vistaMes ? kpi('OTIF del mes', fmt(vistaMes.otif, 1) + ' %', `${fmt(vistaMes.otif - ajustes.meta, 1)} pp frente a la meta · ${fmt(vistaMes.cumplidos)} de ${fmt(vistaMes.total)} pedidos`, vistaMes.otif < ajustes.meta ? 'er' : 'ok') : kpi('OTIF promedio', fmt(otif.promedio, 1) + ' %', `${fmt(otif.promedio - ajustes.meta, 1)} pp frente a la meta`, 'er')}${vistaMes ? '' : kpi('Meses bajo la meta', otif.bajoMeta + ' de ' + otif.completos.length, '', 'er')}${vistaMes ? '' : kpi('Relación incidencias ↔ OTIF', 'R² = ' + fmt(r2 * 100, 0) + ' %', `Pendiente ${fmt(pendiente, 3)} pp por incidencia`)}${kpi('In Full (Fill Rate)', fmt(fillRate * 100, 2) + ' %', 'Cajas entregadas ÷ pedidas', 'ok')}</div>
 <div class="card"><h2>Evolución mensual del OTIF</h2>${graficoLineas(otif.meses, ajustes.meta)}</div>
 <div class="grid g2"><div class="card"><h2>¿Las incidencias explican el OTIF?</h2>${graficoDispersion(otif.puntos, regresion, ajustes.meta)}<p class="mu">Recta: OTIF = ${fmt(intercepto, 2)} ${fmt(pendiente, 4)} × incidencias. Para alcanzar ${ajustes.meta} % harían falta unas <b>${fmt(incidenciasParaLaMeta)}</b> incidencias/mes (hoy ${fmt(incidenciasPromedio)}).</p></div>
 <div class="card"><h2>Causas de las incidencias (Pareto)</h2>${pareto}<p class="mu">Verde: causas que atacan los módulos.</p></div></div>
@@ -2425,6 +2446,12 @@ function render() {
 // El PDF se pide en el momento del clic (no al cargar) para evitar una dependencia circular con pdf.js
 function enlazar() {
   alClick('#pdf-diagnostico', () => __m["modulos/diagnostico/pdf.js"].descargarDiagnosticoPdf());
+  document.querySelectorAll('[data-mes-diag]').forEach(selector => {
+    selector.onchange = () => {
+      ui.diagnostico.mes = selector.value;
+      refrescar();
+    };
+  });
 }
 
 __e.default = {
@@ -2639,8 +2666,18 @@ __m["modulos/ubicaciones/vista.js"] = (function () {
 const __e = {};
 // Ubicaciones (slotting): plan de traslados y plano de la planta con la ocupación de las ubicaciones de picking.
 
-const { modelo, ui } = __m["nucleo/estado.js"];
+const { modelo, ui, datos, ajustes } = __m["nucleo/estado.js"];
 const { planta } = __m["nucleo/planta.js"];
+const { construirCatalogo } = __m["nucleo/catalogo.js"];
+const { calcularUbicaciones } = __m["modulos/ubicaciones/calculo.js"];
+
+// Ahorro si el corte fuera el último día del mes elegido (misma ventana de demanda hacia atrás)
+function ahorroParaMes(clave) {
+  const [anio, mes] = clave.split('-').map(Number);
+  const finMes = new Date(Date.UTC(anio, mes, 0)).toISOString().slice(0, 10).replace(/-/g, '');
+  const aj = { ...ajustes, corteStock: Number(finMes) };
+  return calcularUbicaciones(construirCatalogo(datos, aj), aj, planta);
+}
 const { fmt, esc } = __m["nucleo/formato.js"];
 const { kpi, tabla, encabezado, etiqueta, etiquetaZona } = __m["nucleo/html.js"];
 const { dibujarPlano } = __m["nucleo/graficos.js"];
@@ -2753,14 +2790,17 @@ function render() {
   const vacio = pantallaVacia(TITULO, SUBTITULO, ['inventario', 'layout', 'pedidos']);
   if (vacio) return vacio;
 
-  const { catalogo, ubicaciones } = modelo;
+  const { catalogo, ubicaciones: ubicacionesModelo } = modelo;
   const { pestana, filtro, ocupacion } = ui.ubicaciones;
+  const ubicaciones = ui.ubicaciones.ahorroMes ? { ...ubicacionesModelo, ...ahorroParaMes(ui.ubicaciones.ahorroMes) } : ubicacionesModelo;
+  const meses = (modelo.otif?.meses || []).map(m => m.clave);
+  const selectorAhorro = `<label class="mu">Mes del corte para el ahorro <select data-ahorro-mes><option value="">Automático (último pedido)</option>${meses.map(c => `<option value="${esc(c)}" ${ui.ubicaciones.ahorroMes === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>`;
   const total = catalogo.skus.length;
 
   return (
     encabezado(TITULO, SUBTITULO, `<button class="btn" id="exportar">⬇ Exportar plan</button>`) +
     (pestana == 1 ? avisosDelPlan(ubicaciones.avisos) : '') +
-    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', (ubicaciones.ahorro == null ? 'Sin datos suficientes' : fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes')), ubicaciones.ahorro == null ? 'sin pedidos en el corte seleccionado' : 'metros de recorrido por periodo si se aplican todos')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
+    (pestana == 1 ? `<div class="row">${selectorAhorro}</div><div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', (ubicaciones.ahorro == null ? 'Sin datos suficientes' : fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes')), ubicaciones.ahorro == null ? 'sin pedidos en el corte seleccionado' : 'metros de recorrido por periodo si se aplican todos')}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
 `<div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de traslados</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Plano de la planta</button></div>` +
     (pestana == 1 ? planDeTraslados(ubicaciones.traslados, total, filtro, ui.ubicaciones.filtros) : planoDeRacks(ubicaciones, ocupacion))
   );
@@ -2770,6 +2810,12 @@ function enlazar({ refrescar }) {
   alClick('[data-pestana]', boton => {
     ui.ubicaciones.pestana = +boton.dataset.pestana;
     refrescar();
+  });
+  document.querySelectorAll('[data-ahorro-mes]').forEach(selector => {
+    selector.onchange = () => {
+      ui.ubicaciones.ahorroMes = selector.value;
+      refrescar();
+    };
   });
   alClick('[data-ocupacion]', boton => {
     ui.ubicaciones.ocupacion = +boton.dataset.ocupacion;
