@@ -31,7 +31,8 @@ const AJUSTES_POR_DEFECTO = {
   rEri: 50, // reducción de diferencias en conteos con el módulo 3 (%)
   rRop: 50, // reducción de falta de productos con el módulo 3 (%)
   fotoStock: 0, // día de la foto del Stock_Sistema, formato AAAAMMDD (0 = no restar pedidos)
-  corteStock: 0, // corte de datos, AAAAMMDD (0 = fecha del pedido más reciente)
+  corteStock: 0, // corte manual AAAAMMDD (0 = fecha del pedido más reciente)
+  periodicidadCorte: 30, // 30 = mensual; 15 = quincenal
   frecuenciaConteo: 7, // días entre un conteo físico de stock y el siguiente
   reubicacion: 30 // días entre reubicaciones: 30 = mensual, 15 = quincenal
 };
@@ -67,7 +68,8 @@ const GRUPOS_AJUSTES = [
       ['eri', 'Meta de exactitud ERI (%)'],
       ['toleranciaEri', 'Tolerancia de ERI (puntos %)'],
       ['fotoStock', 'Día de la foto del stock (AAAAMMDD)'],
-      ['corteStock', 'Corte de datos (AAAAMMDD, 0 = fecha del pedido más reciente)'],
+      ['periodicidadCorte', 'Periodicidad del corte', 'seleccion'],
+      ['corteStock', 'Fecha de corte (AAAAMMDD, 0 = último pedido disponible)'],
       ['frecuenciaConteo', 'Frecuencia del conteo físico (días)']
     ]
   ],
@@ -659,8 +661,9 @@ const { planta } = __m["nucleo/planta.js"];
 // Sin pedidos, se usa el último día del mes anterior.
 function corteVigente(ajustes, pedidos = []) {
   if (ajustes.corteStock) {
-    const s = String(ajustes.corteStock);
-    return Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+    const s = String(Math.trunc(ajustes.corteStock));
+    const fecha = Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+    if (s.length === 8 && new Date(fecha).toISOString().slice(0, 10).replace(/-/g, '') === s) return fecha;
   }
   let ultima = NaN;
   pedidos.forEach(p => {
@@ -681,6 +684,15 @@ function construirCatalogo(datos, ajustes) {
   // Pedidos posteriores al corte son programados: no cuentan como demanda ni como completados
   const corteMs = corteVigente(ajustes, pedidos);
   const desde = corteMs - ajustes.vent * 864e5;
+  // El corte operativo es mensual o quincenal; es independiente de la ventana histórica de demanda.
+  const fechaCorte = new Date(corteMs);
+  const diaCorte = fechaCorte.getUTCDate();
+  const periodoInicio = Date.UTC(fechaCorte.getUTCFullYear(), fechaCorte.getUTCMonth(),
+    ajustes.periodicidadCorte === 15 && diaCorte > 15 ? 16 : 1);
+  const lineasPeriodo = marcas.filter(m => Number.isFinite(m) && m >= periodoInicio && m <= corteMs).length;
+  const diasHistorial = marcas.filter(Number.isFinite);
+  const fechaMinDatos = diasHistorial.length ? Math.min(...diasHistorial) : NaN;
+  const fechaMaxDatos = diasHistorial.length ? Math.max(...diasHistorial) : NaN;
 
   // Pedidos posteriores a la foto del stock (día AAAAMMDD) y hasta el corte, ambos incluidos.
   // Foto 0 = el stock ya está actualizado y no se resta nada.
@@ -775,6 +787,12 @@ function construirCatalogo(datos, ajustes) {
       desde,
       corte: corteMs,
       lineas: lineasEnVentana,
+      periodoInicio,
+      lineasPeriodo,
+      periodicidad: ajustes.periodicidadCorte === 15 ? 'quincenal' : 'mensual',
+      sinDatosPeriodo: lineasPeriodo === 0,
+      historialIncompleto: Number.isFinite(fechaMinDatos) && fechaMinDatos > desde,
+      diasObservados: Number.isFinite(fechaMinDatos) ? Math.max(1, Math.round((Math.min(fechaMaxDatos, corteMs) - Math.max(fechaMinDatos, desde)) / 864e5) + 1) : 0,
       skus: Object.keys(frecuencia).length,
       lineasCargadas: pedidos.length,
       fechaMin: marcas.reduce((a, m) => (Number.isNaN(m) ? a : Math.min(a, m)), Infinity),
@@ -1264,14 +1282,17 @@ function calcularUbicaciones(catalogo, ajustes, planta) {
   const zonasSinRacks = ZONAS.filter(z => !racksDeZona(z).length);
   return {
     traslados,
-    ahorro: (ahorro * ajustes.reubicacion) / 7, // metros de recorrido por periodo de reubicación (mensual o quincenal)
+    ahorro: catalogo.ventana.sinDatosPeriodo ? null : (ahorro * ajustes.reubicacion) / 7, // metros de recorrido por periodo de reubicación (mensual o quincenal)
     periodoDias: ajustes.reubicacion,
     ventana: {
       desde: new Date(catalogo.ventana.desde).toISOString().slice(0, 10),
       corte: new Date(catalogo.ventana.corte).toISOString().slice(0, 10),
       lineas: catalogo.ventana.lineas,
       skus: catalogo.ventana.skus,
-      aviso: catalogo.ventana.lineas === 0 ? ' · ⚠ sin pedidos en la ventana: el ahorro no se puede calcular' : '',
+      aviso: catalogo.ventana.sinDatosPeriodo ? ' · ⚠ sin pedidos en el corte seleccionado: no se puede estimar el ahorro' : (catalogo.ventana.historialIncompleto ? ' · ⚠ historial parcial: solo ' + catalogo.ventana.diasObservados + ' días disponibles de ' + ajustes.vent + ' de ventana' : ''),
+      periodoInicio: new Date(catalogo.ventana.periodoInicio).toISOString().slice(0, 10),
+      lineasPeriodo: catalogo.ventana.lineasPeriodo,
+      periodicidad: catalogo.ventana.periodicidad,
       lineasCargadas: catalogo.ventana.lineasCargadas,
       fechaMin: Number.isFinite(catalogo.ventana.fechaMin) ? new Date(catalogo.ventana.fechaMin).toISOString().slice(0, 10) : 'sin fecha',
       fechaMax: Number.isFinite(catalogo.ventana.fechaMax) ? new Date(catalogo.ventana.fechaMax).toISOString().slice(0, 10) : 'sin fecha'
@@ -2734,7 +2755,7 @@ function render() {
   return (
     encabezado(TITULO, SUBTITULO, `<button class="btn" id="exportar">⬇ Exportar plan</button>`) +
     (pestana == 1 ? avisosDelPlan(ubicaciones.avisos) : '') +
-    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes'), 'metros de recorrido por periodo si se aplican todos · ventana de demanda ' + ubicaciones.ventana.desde + ' a ' + ubicaciones.ventana.corte + ': ' + ubicaciones.ventana.lineas + ' líneas de pedido de ' + ubicaciones.ventana.skus + ' SKU' + ubicaciones.ventana.aviso + ' · líneas cargadas: ' + ubicaciones.ventana.lineasCargadas + ', fechas del ' + ubicaciones.ventana.fechaMin + ' al ' + ubicaciones.ventana.fechaMax)}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
+    (pestana == 1 ? `<div class="grid">${kpi('Traslados sugeridos', ubicaciones.traslados.length, `de ${total} SKUs (${fmt((ubicaciones.traslados.length / (total || 1)) * 100, 0)} %)`, 'wa')}${kpi('Riesgo térmico', ubicaciones.riesgoTermico, 'productos fuera de su cámara', 'er')}${kpi('Ahorro estimado', (ubicaciones.ahorro == null ? 'Sin datos suficientes' : fmt(ubicaciones.ahorro) + ' m/' + (ubicaciones.periodoDias === 15 ? 'quincena' : 'mes')), 'corte ' + ubicaciones.ventana.periodicidad + ' desde ' + ubicaciones.ventana.periodoInicio + ' (' + ubicaciones.ventana.lineasPeriodo + ' líneas) · ahorro potencial de recorrido si se aplican todos · ventana histórica ' + ubicaciones.ventana.desde + ' a ' + ubicaciones.ventana.corte + ': ' + ubicaciones.ventana.lineas + ' líneas de pedido de ' + ubicaciones.ventana.skus + ' SKU' + ubicaciones.ventana.aviso + ' · líneas cargadas: ' + ubicaciones.ventana.lineasCargadas + ', fechas del ' + ubicaciones.ventana.fechaMin + ' al ' + ubicaciones.ventana.fechaMax)}${kpi('Ubicaciones sobre su capacidad', ubicaciones.saturadosActual, 'Con el plan: ' + ubicaciones.saturadosPropuesta, 'wa')}${kpi('SKUs sin ubicación', ubicaciones.sinUbicacion, '', 'ok')}</div>` : '') +
 `<div class="tabs"><button class="${pestana == 1 ? 'on' : ''}" data-pestana="1">Plan de traslados</button><button class="${pestana == 2 ? 'on' : ''}" data-pestana="2">Plano de la planta</button></div>` +
     (pestana == 1 ? planDeTraslados(ubicaciones.traslados, total, filtro, ui.ubicaciones.filtros) : planoDeRacks(ubicaciones, ocupacion))
   );
@@ -3886,7 +3907,7 @@ const SUBTITULO = 'Parámetros y supuestos del modelo. Cambiar un valor recalcul
 function campo([clave, etiqueta, tipo]) {
   const control =
     tipo === 'seleccion'
-      ? `<select data-ajuste="${clave}">${(clave === 'reubicacion'
+      ? `<select data-ajuste="${clave}">${(clave === 'reubicacion' || clave === 'periodicidadCorte'
           ? [[30, 'Mensual'], [15, 'Quincenal']]
           : Object.keys(NIVELES_SERVICIO).map(z => [z, z])
         )
@@ -3921,7 +3942,16 @@ function enlazar({ guardarAjustes, copiar }) {
       .catch(() => (boton.textContent = 'No se pudo copiar'));
   });
   alClick('#guardar', () => {
-    $$('[data-ajuste]').forEach(c => (ajustes[c.dataset.ajuste] = +c.value));
+    const corteInput = document.querySelector('[data-ajuste="corteStock"]');
+    if (corteInput && +corteInput.value !== 0) {
+      const s = corteInput.value.trim();
+      const fecha = s.length === 8 ? Date.UTC(+s.slice(0,4), +s.slice(4,6)-1, +s.slice(6,8)) : NaN;
+      if (!Number.isFinite(fecha) || new Date(fecha).toISOString().slice(0,10).replace(/-/g,'') !== s) {
+        alert('Fecha de corte inválida. Use AAAAMMDD o 0 para automático.');
+        return;
+      }
+    }
+    $('[data-ajuste]').forEach(c => (ajustes[c.dataset.ajuste] = +c.value));
     guardarAjustes();
   });
   alClick('#restablecer', () => {
