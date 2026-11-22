@@ -447,6 +447,7 @@ function construirPlanta(layout) {
     )
   );
   layout.muros.forEach(m => marcar(m.x0, m.y0, m.x1, m.y1, 2, 0)); // cualquier muro que toque una celda la bloquea
+
   const celdaDe = (x, y) => {
     const cx = Math.min(columnas - 1, Math.max(0, Math.floor(x / celda)));
     const cy = Math.min(filas - 1, Math.max(0, Math.floor(y / celda)));
